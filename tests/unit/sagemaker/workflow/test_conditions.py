@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -99,8 +99,8 @@ def test_condition_in():
     cond_in = ConditionIn(value=param, in_values=["abc", "def"])
     assert cond_in.to_request() == {
         "Type": "In",
-        "Value": {"Get": "Parameters.MyStr"},
-        "In": ["abc", "def"],
+        "QueryValue": {"Get": "Parameters.MyStr"},
+        "Values": ["abc", "def"],
     }
 
 
@@ -111,8 +111,8 @@ def test_condition_in_mixed():
     cond_in = ConditionIn(value=param, in_values=["abc", prop, var])
     assert cond_in.to_request() == {
         "Type": "In",
-        "Value": {"Get": "Parameters.MyStr"},
-        "In": ["abc", {"Get": "foo"}, {"Get": "Execution.StartDateTime"}],
+        "QueryValue": {"Get": "Parameters.MyStr"},
+        "Values": ["abc", {"Get": "foo"}, {"Get": "Execution.StartDateTime"}],
     }
 
 
@@ -138,8 +138,8 @@ def test_condition_not_in():
         "Type": "Not",
         "Expression": {
             "Type": "In",
-            "Value": {"Get": "Parameters.MyStr"},
-            "In": ["abc", "def"],
+            "QueryValue": {"Get": "Parameters.MyStr"},
+            "Values": ["abc", "def"],
         },
     }
 
@@ -160,8 +160,17 @@ def test_condition_or():
             },
             {
                 "Type": "In",
-                "Value": {"Get": "Parameters.MyStr"},
-                "In": ["abc", "def"],
+                "QueryValue": {"Get": "Parameters.MyStr"},
+                "Values": ["abc", "def"],
             },
         ],
+    }
+
+
+def test_left_and_right_primitives():
+    cond = ConditionEquals(left=2, right=1)
+    assert cond.to_request() == {
+        "Type": "Equals",
+        "LeftValue": 2,
+        "RightValue": 1,
     }

@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -103,7 +103,7 @@ class OnlineStoreConfig(Config):
         """
         return Config.construct_dict(
             EnableOnlineStore=self.enable_online_store,
-            OnlineStoreSecurityConfig=self.online_store_security_config,
+            SecurityConfig=self.online_store_security_config,
         )
 
 

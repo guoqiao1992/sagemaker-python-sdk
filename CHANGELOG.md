@@ -1,5 +1,1377 @@
 # Changelog
 
+## v2.86.2 (2022-04-14)
+
+### Bug Fixes and Other Changes
+
+ * #using uuid to randomize, otherwise system timestamp is used
+
+## v2.86.1 (2022-04-13)
+
+### Bug Fixes and Other Changes
+
+ * xgboost, sklearn network isolation for jumpstart
+
+### Documentation Changes
+
+ * fix minor typo
+
+## v2.86.0 (2022-04-12)
+
+### Features
+
+ * Adds Spark Processing Notebook to Notebook Tests
+
+## v2.85.0 (2022-04-11)
+
+### Features
+
+ * update lambda code on pipeline create/update/upsert for Lamb…
+ * jumpstart model url
+ * add serverless inference image_uri retrieve support
+
+### Bug Fixes and Other Changes
+
+ * Add back the Fix for Pipeline variables related customer issues
+ * Support file URIs in ProcessingStep's code parameter
+
+## v2.84.0 (2022-04-07)
+
+### Features
+
+ * dependabot integ - move all deps to requirements.txt
+ * add xgboost framework version 1.5-1
+
+## v2.83.0 (2022-04-04)
+
+### Features
+
+ * Hugging Face Transformers 4.17 for TF 2.6
+
+### Bug Fixes and Other Changes
+
+ * IOC image version select issue
+
+## v2.82.2 (2022-04-01)
+
+### Bug Fixes and Other Changes
+
+ * Revert "fix: Fix Pipeline variables related customer issues (#2959)"
+ * Refactor repack_model script injection, fixes tar.gz error
+
+## v2.82.1 (2022-03-31)
+
+### Bug Fixes and Other Changes
+
+ * Update Inferentia Image URI Config
+ * Fix Pipeline variables related customer issues
+ * more logging info for static pipeline test data setup
+
+## v2.82.0 (2022-03-30)
+
+### Features
+
+ * pluggable instance fallback mechanism, add CapacityError
+ * support passing Env Vars to local mode training
+
+## v2.81.1 (2022-03-29)
+
+### Bug Fixes and Other Changes
+
+ * Update black-check version, add support for Spark 3.1 Processing
+
+## v2.81.0 (2022-03-26)
+
+### Features
+
+ * Retrieve data configuration
+ * enable EnableInterContainerTrafficEncryption for model monitoring
+ * Hugging Face Transformers 4.17 for PT 1.10
+
+### Bug Fixes and Other Changes
+
+ * remove `new` from serverless
+ * temporarily skip tests impacted by data inconsistency
+ * Implement override solution for pipeline variables
+
+### Documentation Changes
+
+ * add documentation for image_uri serverless use case
+ * minor fixes for smddp 1.4.0 doc
+
+## v2.80.0 (2022-03-18)
+
+### Features
+
+ * Add support for TF2.7
+ * Add support for TF 2.8
+ * TF242 ioc support
+ * Add support for TF 2.6.3
+ * Support for remote docker host
+ * AutoGluon 0.3.2 and 0.4.0 image_uris
+
+### Bug Fixes and Other Changes
+
+ * Align max_wait definitions in EstimaorBase and Estimator
+ * Add JumpStart model table build notification
+ * gpu integs CapacityError - fallback to available compute
+ * gpu integs CapacityError - fallback to available compute
+ * jumpstart docs network isolation
+
+### Documentation Changes
+
+ * sagemaker distributed model parallel 1.7.0 doc
+
+## v2.79.0 (2022-03-16)
+
+### Features
+
+ * Inferentia Neuron support for HuggingFace
+ * custom base job name for jumpstart models/estimators
+ * Python 3.9 for readthedocs
+
+### Bug Fixes and Other Changes
+
+ * container env generation for S3 URI and add test for the same
+
+### Documentation Changes
+
+ * the SageMaker distributed data parallel v1.4.0 release
+ * update sagemaker training compiler docstring
+ * smddp doc update
+
+## v2.78.0 (2022-03-07)
+
+### Features
+
+ * TensorFlow 2.4 for Neo
+ * Data Serializer
+
+### Bug Fixes and Other Changes
+
+ * Style update in DataSerializer
+ * Remove sagemaker_job_name from hyperparameters in TrainingStep
+ * reorganize test files for workflow
+ * update code to get commit_id in codepipeline
+
+## v2.77.1 (2022-02-25)
+
+### Bug Fixes and Other Changes
+
+ * jumpstart model table
+
+## v2.77.0 (2022-02-22)
+
+### Features
+
+ * override jumpstart content bucket
+ * jumpstart model id suggestions
+ * adding customer metadata support to registermodel step
+
+### Bug Fixes and Other Changes
+
+ * Improve Pipeline workflow unit test branch coverage
+ * update lineage_trial_compoment get pipeline execution arn
+ * Add lineage doc
+ * Support primitive types for left value of ConditionSteps
+
+## v2.76.0 (2022-02-17)
+
+### Features
+
+ * Add FailStep Support for Sagemaker Pipeline
+
+### Bug Fixes and Other Changes
+
+ * use recommended inference image uri from Neo API
+ * pin test dependencies
+ * Add exception in test_action
+ * Update Static Endpoint
+ * Add CMH to the non-P3 list
+
+### Documentation Changes
+
+ * Support for generation of Jumpstart model table on build
+
+## v2.75.1 (2022-02-08)
+
+### Bug Fixes and Other Changes
+
+ * Add CMH to the non-P3 list
+
+## v2.75.0 (2022-02-05)
+
+### Features
+
+ * JumpStart Integration
+ * Adds support for async inference
+ * Update instance types for integ test
+
+### Bug Fixes and Other Changes
+
+ * Revert "feature: CompilationStep support for Sagemaker Pipelines
+ * gpu use p3/p2 per avail for region
+ * jumpstart typo
+ * pin pytest-xdist to avoid release failures
+ * set sagemaker_connection and image_uri in register method
+ * update to incorporate black v22, pin tox versions
+ * Add deprecation warning in Clarify DataConfig
+
+### Documentation Changes
+
+ * Jumpstart doc strings and added new sections
+ * Add Jumpstart support documentation
+
+## v2.74.0 (2022-01-26)
+
+### Features
+
+ * Add support for SageMaker lineage queries context
+
+### Bug Fixes and Other Changes
+
+ * support specifying a facet by its column index
+
+### Documentation Changes
+
+ * more documentation for serverless inference
+
+## v2.73.0 (2022-01-19)
+
+### Features
+
+ * Add EMRStep support in Sagemaker pipeline
+ * Adds Lineage queries in artifact, context and trial components
+ * Add support for SageMaker lineage queries in action
+ * Adds support for Serverless inference
+ * support checkpoint to be passed from estimator
+ * support JsonGet/Join parameterization in tuning step Hyperparameters
+ * Support model pipelines in CreateModelStep
+ * enable python 3.9
+ * Add models_v2 under lineage context
+
+### Bug Fixes and Other Changes
+
+ * allow kms_key to be passed for processing step
+ * Remove duplicate vertex/edge in query lineage
+ * update pricing link
+ * Update CHANGELOG.md
+ * fixes unnecessary session call while generating pipeline definition for lambda step
+
+### Documentation Changes
+
+ * Enhance smddp 1.2.2 doc
+ * Document the available ExecutionVariables
+
+## v2.72.3 (2022-01-10)
+
+### Features
+
+ * default repack encryption
+ * support large pipeline
+ * add support for pytorch 1.10.0
+ 
+### Documentation Changes
+
+ * SageMaker model parallel library 1.6.0 API doc
+
+### Bug Fixes and Other Changes
+
+ * Model Registration with BYO scripts
+ * Add ContentType in test_auto_ml_describe
+ * Re-deploy static integ test endpoint if it is not found
+ * fix kmeans test deletion sequence, increment lineage statics
+ * Increment static lineage pipeline
+ * Fix lineage query integ tests
+ * Add label_headers option for Clarify ModelExplainabilityMonitor
+ * Add action type to lineage object
+ * Collapse cross-account artifacts in query lineage response
+ * Update CHANGELOG.md to remove defaulting dot characters
+
+## v2.72.2 (2022-01-06)
+
+### Bug Fixes and Other Changes
+
+ * Update CHANGELOG.md
+ * Increment static lineage pipeline
+ * fix kmeans test deletion sequence, increment lineage statics
+ * Re-deploy static integ test endpoint if it is not found
+ * Add ContentType in test_auto_ml_describe
+ * Model Registration with BYO scripts
+
+### Documentation Changes
+
+ * SageMaker model parallel library 1.6.0 API doc
+
+## v2.72.1 (2021-12-20)
+
+### Bug Fixes and Other Changes
+
+ * typos and broken link
+ * S3Input - add support for instance attributes
+ * Prevent repack_model script from referencing nonexistent directories
+ * Set ProcessingStep upload locations deterministically to avoid cache
+
+## v2.72.0 (2021-12-13)
+
+### Features
+
+ * allow conditional parellel builds
+
+### Bug Fixes and Other Changes
+
+ * local mode - support relative file structure
+ * fix endpoint bug
+
+## v2.71.0 (2021-12-06)
+
+### Features
+
+ * Add support for TF 2.6
+ * Adding PT 17/18 Repo
+ * Add profile_name support for Feature Store ingestion
+
+### Bug Fixes and Other Changes
+
+ * Fix non-existent variable name
+ * Add TF 2.6.2 on training
+ * Recreate static lineage test data
+
+## v2.70.0 (2021-12-02)
+
+### Features
+
+ * update boto3 minor version >= 1.20.18
+ * Add support for SageMaker lineage queries
+ * add CV shap explainability for SageMaker Clarify
+ * add NLP support for SageMaker Clarify
+ * Add support for ModelMonitor/Clarify integration in model building pipelines
+ * adding support for transformers 4.11 for SM Training Compiler
+ * SM Training Compiler with an UI to enable/disable compilation for HuggingFace DLCs to speedup training
+
+### Bug Fixes and Other Changes
+
+ * pin coveragepy
+ * Add support for PyTorch 1.9.1
+ * Update s3 path of scheduling analysis config on ClarifyCheckStep
+ * documentation/logging to indicate correct place for DEBUG artifacts from SM trcomp
+ * validate requested transformers version and use the best available version
+ * Install custom pkgs
+
+## v2.69.0 (2021-11-12)
+
+### Features
+
+ * Hugging Face Transformers 4.12 for Pt1.9/TF2.5
+
+## v2.68.0 (2021-11-02)
+
+### Features
+
+ * CompilationStep support for Sagemaker Pipelines
+
+## v2.67.0 (2021-11-01)
+
+### Deprecations and Removals
+
+ * deprecate Serverless Lambda model-predictor
+
+### Features
+
+ * add joinsource to DataConfig
+ * Add support for Partial Dependence Plots(PDP) in SageMaker Clarify
+
+### Bug Fixes and Other Changes
+
+ * localmode subprocess parent process not sending SIGTERM to child
+ * remove buildspec from repo
+
+## v2.66.2.post0 (2021-10-28)
+
+### Documentation Changes
+
+ * Update estimator docstrings to add Fast File Mode
+
+## v2.66.2 (2021-10-27)
+
+### Bug Fixes and Other Changes
+
+ * expose num_clusters parameter for clarify shap in shapconfig
+ * Update cron job to run hourly
+
+## v2.66.1 (2021-10-26)
+
+### Bug Fixes and Other Changes
+
+ * HuggingFace image_uri generation for inference
+ * Update '_' and '/' with '-' in filename creation
+
+## v2.66.0 (2021-10-25)
+
+### Features
+
+ * Add image_uris.retrieve() support for AutoGluon
+
+### Documentation Changes
+
+ * fix documentation for input types in estimator.fit
+ * Add JsonGet v2 deprecation
+
+## v2.65.0 (2021-10-21)
+
+### Features
+
+ * modify RLEstimator to use newly generated Ray image (1.6.0)
+ * network isolation mode for xgboost
+ * update clarify imageURI for PDT
+
+### Bug Fixes and Other Changes
+
+ * retry downstream_trials test
+ * Add retries to pipeline execution
+
+## v2.64.0 (2021-10-20)
+
+### Deprecations and Removals
+
+ * warn for deprecation - Lambda model-predictor
+
+### Features
+
+ * Add support for TF 2.5
+ * Add a pre-push git hook
+
+### Bug Fixes and Other Changes
+
+ * add s3_analysis_config_output_path field in DataConfig constructor
+ * make marketplace jobnames random
+
+## v2.63.2 (2021-10-18)
+
+### Bug Fixes and Other Changes
+
+ * Update timeouts for integ tests from 20 to 40
+
+## v2.63.1 (2021-10-14)
+
+### Bug Fixes and Other Changes
+
+ * HF estimator attach modified to work with py38
+
+## v2.63.0 (2021-10-13)
+
+### Features
+
+ * support configurable retry for pipeline steps
+
+## v2.62.0 (2021-10-12)
+
+### Features
+
+ * Hugging Face Transformers 4.10 for Pt1.8/TF2.4 & Transformers 4.11 for PT1.9&TF2.5
+
+### Bug Fixes and Other Changes
+
+ * repack_model script used in pipelines to support source_dir and dependencies
+
+## v2.61.0 (2021-10-11)
+
+### Features
+
+ * add support for PyTorch 1.9.0
+
+### Bug Fixes and Other Changes
+
+ * Update TRAINING_DEFAULT_TIMEOUT_MINUTES to 40 min
+ * notebook test for parallel PRs
+
+## v2.60.0 (2021-10-08)
+
+### Features
+
+ * Add support for Hugging Face 4.10.2
+
+## v2.59.8 (2021-10-07)
+
+### Bug Fixes and Other Changes
+
+ * fix feature store ingestion via data wrangler test
+
+## v2.59.7 (2021-10-04)
+
+### Bug Fixes and Other Changes
+
+ * update feature request label
+ * update bug template
+
+## v2.59.6 (2021-09-30)
+
+### Bug Fixes and Other Changes
+
+ * ParamValidationError when scheduling a Clarify model monitor
+
+## v2.59.5 (2021-09-29)
+
+### Bug Fixes and Other Changes
+
+ * support maps in step parameters
+
+## v2.59.4 (2021-09-27)
+
+### Bug Fixes and Other Changes
+
+ * add checks for ExecutionRole in UserSettings, adds more unit tests
+ * add pytorch 1.8.1 for huggingface
+
+## v2.59.3.post0 (2021-09-22)
+
+### Documentation Changes
+
+ * Info about offline s3 bucket key when creating feature group
+
+## v2.59.3 (2021-09-20)
+
+## v2.59.2 (2021-09-15)
+
+### Bug Fixes and Other Changes
+
+ * unit tests for KIX and remove regional calls to boto
+
+### Documentation Changes
+
+ * Remove Shortbread
+
+## v2.59.1.post0 (2021-09-13)
+
+### Documentation Changes
+
+ * update experiment config doc on fit method
+
+## v2.59.1 (2021-09-02)
+
+### Bug Fixes and Other Changes
+
+ * pin docker to 5.0.0
+
+## v2.59.0 (2021-09-01)
+
+### Features
+
+ * Add KIX account for SM XGBoost 1.2-2 and 1.3-1
+
+### Bug Fixes and Other Changes
+
+ * revert #2572 and address #2611
+
+## v2.58.0 (2021-08-31)
+
+### Features
+
+ * update debugger for KIX
+ * support displayName and description for pipeline steps
+
+### Bug Fixes and Other Changes
+
+ * localmode subprocess parent process not sending SIGTERM to child
+
+## v2.57.0 (2021-08-30)
+
+### Deprecations and Removals
+
+ * Remove stale S3DownloadMode from test_session.py
+
+### Features
+
+ * update clarify imageURI for KIX
+
+### Bug Fixes and Other Changes
+
+ * propagate KMS key to model.deploy
+ * Propagate tags and VPC configs to repack model steps
+
+## v2.56.0 (2021-08-26)
+
+### Features
+
+ * Add NEO KIX Configuration
+ * Algorithms region launch on KIX
+
+### Bug Fixes and Other Changes
+
+ * remove dots from CHANGELOG
+
+## v2.55.0 (2021-08-25)
+
+### Features
+
+ * Add information of Amazon-provided analysis image used by Model Monitor
+
+### Bug Fixes and Other Changes
+
+ * Update Changelog to fix release
+ * Fixing the order of populating container list
+ * pass network isolation config to pipelineModel
+ * Deference symbolic link when create tar file
+ * multiprocess issue in feature_group.py
+ * deprecate tag logic on Association
+
+### Documentation Changes
+
+ * add dataset_definition to processing page
+
+## v2.54.0 (2021-08-16)
+
+### Features
+
+ * add pytorch 1.5.1 eia configuration
+
+### Bug Fixes and Other Changes
+
+ * issue #2253 where Processing job in Local mode would call Describe API
+
+## v2.53.0 (2021-08-12)
+
+### Features
+
+ * support tuning step parameter range parameterization + support retry strategy in tuner
+
+## v2.52.2.post0 (2021-08-11)
+
+### Documentation Changes
+
+ * clarify that default_bucket creates a bucket
+ * Minor updates to Clarify API documentation
+
+## v2.52.2 (2021-08-10)
+
+### Bug Fixes and Other Changes
+
+ * sklearn integ tests, remove swallowing exception on feature group delete attempt
+ * sklearn integ test for custom bucket
+
+### Documentation Changes
+
+ * Fix dataset_definition links
+ * Document LambdaModel and LambdaPredictor classes
+
+## v2.52.1 (2021-08-06)
+
+### Bug Fixes and Other Changes
+
+ * revert #2251 changes for sklearn processor
+
+## v2.52.0 (2021-08-05)
+
+### Features
+
+ * processors that support multiple Python files, requirements.txt, and dependencies.
+ * support step object in step depends on list
+
+### Bug Fixes and Other Changes
+
+ * enable isolation while creating model from job
+ * update `sagemaker.serverless` integration test
+ * Use correct boto model name for RegisterModelStep properties
+
+## v2.51.0 (2021-08-03)
+
+### Features
+
+ * add LambdaStep support for SageMaker Pipelines
+ * support JsonGet for all step types
+
+## v2.50.1 (2021-08-02)
+
+### Bug Fixes and Other Changes
+
+ * null checks for uploaded_code and entry_point
+
+### Documentation Changes
+
+ * update sagemaker.estimator.EstimatorBase
+ * Mark baseline as optional in KernelSHAP.
+
+## v2.50.0 (2021-07-28)
+
+### Features
+
+ * add KIX region to image_uris
+
+### Bug Fixes and Other Changes
+
+ * Rename `PredictorBase.delete_endpoint` as `PredictorBase.delete_predictor`
+ * incorrect default argument for callback output parameter
+
+### Documentation Changes
+
+ * Remove years from copyright boilerplate
+ * Fix documentation formatting for PySpark and SparkJar processors
+
+### Testing and Release Infrastructure
+
+ * enable py38 tox env
+
+## v2.49.2 (2021-07-21)
+
+### Bug Fixes and Other Changes
+
+ * order of populating container list
+ * upgrade Adobe Analytics cookie to 3.0
+
+## v2.49.1 (2021-07-19)
+
+### Bug Fixes and Other Changes
+
+ * Set flag when debugger is disabled
+ * KMS Key fix for kwargs
+ * Update BiasConfig to accept multiple facet params
+
+### Documentation Changes
+
+ * Update huggingface estimator documentation
+
+## v2.49.0 (2021-07-15)
+
+### Features
+
+ * Adding serial inference pipeline support to RegisterModel Step
+
+### Documentation Changes
+
+ * add tuning step get_top_model_s3_uri and callback step to doc
+ * links for HF in sdk
+ * Add Clarify module to Model Monitoring API docs
+
+## v2.48.2 (2021-07-12)
+
+### Bug Fixes and Other Changes
+
+ * default time for compilation jobs
+ * skip hf inference test
+
+## v2.48.1 (2021-07-08)
+
+### Bug Fixes and Other Changes
+
+ * skip HF inference test
+ * remove upsert from test_workflow
+
+### Documentation Changes
+
+ * Add Hugging Face docs
+ * add tuning step to doc
+
+## v2.48.0 (2021-07-07)
+
+### Features
+
+ * HuggingFace Inference
+
+### Bug Fixes and Other Changes
+
+ * add support for SageMaker workflow tuning step
+
+## v2.47.2.post0 (2021-07-01)
+
+### Documentation Changes
+
+ * smddp 1.2.1 release note / convert md to rst
+ * add smd model parallel 1.4.0 release note / restructure doc files
+
+## v2.47.2 (2021-06-30)
+
+### Bug Fixes and Other Changes
+
+ * handle tags when upsert pipeine
+
+## v2.47.1 (2021-06-27)
+
+### Bug Fixes and Other Changes
+
+ * revert "fix: jsonGet interpolation issue 2426 + allow step depends on pass in step instance (#2477)"
+
+## v2.47.0 (2021-06-25)
+
+### Features
+
+ * support job_name_prefix for Clarify
+
+### Bug Fixes and Other Changes
+
+ * Add configuration option with headers for Clarify Explainability
+ * jsonGet interpolation issue 2426 + allow step depends on pass in step instance
+ * add default retries to feature group ingestion.
+ * Update using_pytorch.rst
+ * kms key does not propapate in register model step
+ * Correctly interpolate Callback output parameters
+
+## v2.46.1 (2021-06-22)
+
+### Bug Fixes and Other Changes
+
+ * Register model step tags
+
+### Documentation Changes
+
+ * update to include new batch_get_record api call
+ * Correct type annotation for TrainingStep inputs
+ * introduce input mode FastFile
+ * update hf transformer version
+
+## v2.46.0 (2021-06-15)
+
+### Features
+
+ * Add HF transformer version 4.6.1
+
+### Bug Fixes and Other Changes
+
+ * encode localmode payload to UTF-8
+ * call DescribeDomain as fallback in get_execution_role
+ * parameterize PT and TF version for HuggingFace tests
+
+### Documentation Changes
+
+ * Add import statement in Batch Transform Overview doc
+
+## v2.45.0 (2021-06-07)
+
+### Features
+
+ * Add support for Callback steps in model building pipelines
+
+## v2.44.0 (2021-06-01)
+
+### Features
+
+ * support endpoint_name_prefix, seed and version for Clarify
+
+## v2.43.0 (2021-05-31)
+
+### Features
+
+ * add xgboost framework version 1.3-1
+
+### Bug Fixes and Other Changes
+
+ * remove duplicated tags in _append_project_tags
+
+## v2.42.1 (2021-05-27)
+
+### Bug Fixes and Other Changes
+
+ * default value removed if zero for integer param
+
+## v2.42.0 (2021-05-24)
+
+### Features
+
+ * support for custom pipeline execution name
+ * Add data ingestion only data-wrangler flow recipe generation helper function
+
+### Bug Fixes and Other Changes
+
+ * add kms key for processing job code upload
+ * remove failing notebooks from notebook pr test
+ * fix in and not in condition bug
+ * Update overview.rst
+
+### Documentation Changes
+
+ * Update "Ask a question" contact link
+ * Update smdp docs with sparse_as_dense support
+
+## v2.41.0 (2021-05-17)
+
+### Features
+
+ * add pipeline experiment config
+ * add data wrangler processor
+ * support RetryStrategy for training jobs
+
+### Bug Fixes and Other Changes
+
+ * fix repack pipeline step by putting inference.py in "code" sub dir
+ * add data wrangler image uri
+ * fix black-check errors
+
+## v2.40.0 (2021-05-11)
+
+### Features
+
+ * add xgboost framework version 1.2-2
+
+### Bug Fixes and Other Changes
+
+ * fix get_execution_role on Studio
+ * [fix] Check py_version existence in RegisterModel step
+
+### Documentation Changes
+
+ * SM Distributed EFA Launch
+
+## v2.39.1 (2021-05-05)
+
+### Bug Fixes and Other Changes
+
+ * RegisterModel step and custom dependency support
+
+### Documentation Changes
+
+ * reverting SageMaker distributed data parallel EFA doc updates
+ * adding new version, SM dist. data parallel 1.2.0.
+ * add current Hugging Face supported versions
+ * SMDDP 1.2.0 release notes
+
+## v2.39.0.post0 (2021-05-04)
+
+### Testing and Release Infrastructure
+
+ * disable smdataparallel tests
+
+## v2.39.0 (2021-04-28)
+
+### Features
+
+ * Add HF transformer version 4.5.0
+
+### Bug Fixes and Other Changes
+
+ * Allow hyperparameters in Tensorflow estimator to be parameterized
+
+### Testing and Release Infrastructure
+
+ * black format unit tests
+
+## v2.38.0 (2021-04-21)
+
+### Features
+
+ * support multiprocess feature group ingest (#2111)
+
+## v2.37.0 (2021-04-20)
+
+### Features
+
+ * add experiment_config for clarify processing job
+
+### Documentation Changes
+
+ * release notes for smdistributed.dataparallel v1.1.2
+
+## v2.36.0 (2021-04-19)
+
+### Features
+
+ * enable smdataparallel custom mpi options support
+
+## v2.35.0 (2021-04-14)
+
+### Features
+
+ * add support for PyTorch 1.8.1
+
+### Bug Fixes and Other Changes
+
+ * boto3 client param updated for feature store
+ * Updated release notes and API doc for smd model parallel 1.3.1
+
+## v2.34.0 (2021-04-12)
+
+### Features
+
+ * Add support for accelerator in Clarify
+
+### Bug Fixes and Other Changes
+
+ * add Documentation for how to use
+ * enable local mode tests that were skipped
+ * add integ test for HuggingFace with TensorFlow
+
+### Documentation Changes
+
+ * release notes for smdistributed.dataparallel v1.1.1
+ * fixing the SageMaker distributed version references
+
+### Testing and Release Infrastructure
+
+ * pin version for ducutils
+
+## v2.33.0 (2021-04-05)
+
+### Features
+
+ * Add environment variable support for SageMaker training job
+
+### Bug Fixes and Other Changes
+
+ * add version length mismatch validation for HuggingFace
+ * Disable debugger when checkpointing is enabled with distributed training
+ * map user context is list associations response
+
+### Testing and Release Infrastructure
+
+ * disable_profiler on mx-horovod test
+
+## v2.32.1 (2021-04-01)
+
+### Bug Fixes and Other Changes
+
+ * disable profiler in some release tests
+ * remove outdated notebook from test
+ * add compilation option for ml_eia2
+ * add short version to smdataparallel supported list
+
+### Documentation Changes
+
+ * creating a "latest" version sm distributed docs
+ * add docs for Sagemaker Model Parallel 1.3, released with PT 1.8
+ * update PyTorch version in doc
+
+## v2.32.0 (2021-03-26)
+
+### Features
+
+ * upgrade neo mxnet to 1.8
+ * Enable Profiler in China Regions
+
+### Bug Fixes and Other Changes
+
+ * use workflow parameters in training hyperparameters (#2114) (#2115)
+ * skip HuggingFace tests in regions without p2 instances
+
+### Documentation Changes
+
+ * add Feature Store methods docs
+
+## v2.31.1 (2021-03-23)
+
+### Bug Fixes and Other Changes
+
+ * added documentation for Hugging Face Estimator
+ * mark HuggingFace tests as release tests
+
+### Documentation Changes
+
+ * adding version 1.1.0 docs for smdistributed.dataparallel
+
+## v2.31.0 (2021-03-23)
+
+### Features
+
+ * add HuggingFace framework estimator
+ * update TF framework version support
+ * Support all processor types in ProcessingStep
+
+### Bug Fixes and Other Changes
+
+ * Add pipelines functions.
+
+## v2.30.0 (2021-03-17)
+
+### Features
+
+ * add support for PyTorch 1.8.0
+ * Allow users to send custom attributes to the model endpoint
+
+### Bug Fixes and Other Changes
+
+ * use ResolvedOutputS3Uir for Hive DDL LOCATION
+ * Do lazy initialization in predictor
+
+## v2.29.2 (2021-03-11)
+
+### Bug Fixes and Other Changes
+
+ * move pandas to required dependency from specific use cases
+
+## v2.29.1 (2021-03-09)
+
+### Bug Fixes and Other Changes
+
+ * return all failed row indices in feature_group.ingest
+ * move service-role path parsing for AmazonSageMaker-ExecutionRole for get_execution_role() into except block of IAM get_role() call and add warning message
+ * add description parameter for RegisterModelStep
+ * add type annotations for Lineage
+
+### Documentation Changes
+
+ * remove ellipsis from CHANGELOG.md
+
+## v2.29.0 (2021-03-04)
+
+### Features
+
+ * add support for TensorFlow 2.4.1 for training, inference and data parallel
+ * Support profiler config in the pipeline training job step
+ * support PyTorch 1.7.1 training, inference and data parallel
+
+## v2.28.0 (2021-03-03)
+
+### Features
+
+ * support creating endpoints with model images from private registries
+
+## v2.27.1 (2021-03-03)
+
+### Bug Fixes and Other Changes
+
+ * Change Estimator.logs() to use latest_training_job.name
+ * mask creds from docker commands in local mode. Closes #2118
+
+### Documentation Changes
+
+ * fix pipelines processing step typo
+ * remove double 'enable-network-isolation' description
+
+## v2.27.0 (2021-03-01)
+
+### Features
+
+ * add inference_id to predict
+
+### Bug Fixes and Other Changes
+
+ * disable profiler by default for regions not support it
+
+### Documentation Changes
+
+ * add TF 2.4.1 support to sm distributed data parallel docs and other updates
+
+## v2.26.0 (2021-02-26)
+
+### Features
+
+ * Add Framework Version support for PyTorch compilation (Neo)
+
+### Bug Fixes and Other Changes
+
+ * add mxnet 1.7.0 eia configuration
+ * update source constructor for lineage action and artifact
+
+### Documentation Changes
+
+ * fix typo in create_monitoring_schedule method
+
+## v2.25.2 (2021-02-25)
+
+### Bug Fixes and Other Changes
+
+ * Use the output path to store the Clarify config file
+ * feature group should ignore nan values
+ * ignore failing smdataparallel test
+ * Add tests for Training job & Transform job in visualizer
+ * visualizer for pipeline processing job steps
+
+### Documentation Changes
+
+ * update doc for Elastic Inference MXNet 1.7.0
+
+## v2.25.1 (2021-02-20)
+
+### Bug Fixes and Other Changes
+
+ * Add tests for visualizer to improve test coverage
+
+### Documentation Changes
+
+ * specify correct return type
+
+### Testing and Release Infrastructure
+
+ * rename canary_quick pytest mark to release
+
+## v2.25.0 (2021-02-19)
+
+### Features
+
+ * Enable step caching
+ * Add other Neo supported regions for Inferentia inference images
+
+### Bug Fixes and Other Changes
+
+ * remove FailStep from pipelines
+ * use sagemaker_session in workflow tests
+ * use ECR public for multidatamodel tests
+ * add the mapping from py3 to cuda11 images
+ * Add 30s cap time for tag tests
+ * add build spec for slow tests
+ * mark top 10 slow tests
+ * remove slow test_run_xxx_monitor_baseline tests
+ * pin astroid to 2.4.2
+
+### Testing and Release Infrastructure
+
+ * unmark more flaky integ tests
+ * remove canary_quick pytest mark from flaky/unnecessary tests
+ * remove python3.8 from buildspec
+ * remove py38 tox env
+ * fix release buildspec typo
+ * unblock regional release builds
+ * lower test TPS for experiment analytics
+ * move package preparation and publishing to the deploy step
+
+## v2.24.5 (2021-02-12)
+
+### Bug Fixes and Other Changes
+
+ * test_tag/test_tags method assert fix in association tests
+
+### Documentation Changes
+
+ * removing mention of TF 2.4 from SM distributed model parallel docs
+ * adding details about mpi options, other small updates
+
+## v2.24.4 (2021-02-09)
+
+### Bug Fixes and Other Changes
+
+ * add integration test for listing artifacts by type
+ * List Associations integ tests
+
+## v2.24.3 (2021-02-04)
+
+### Bug Fixes and Other Changes
+
+ * Remove pytest fixture and fix test_tag/s method
+
+## v2.24.2 (2021-02-03)
+
+### Bug Fixes and Other Changes
+
+ * use 3.5 version of get-pip.py
+ * SM DDP release notes/changelog files
+
+### Documentation Changes
+
+ * adding versioning to sm distributed data parallel docs
+
+## v2.24.1 (2021-01-28)
+
+### Bug Fixes and Other Changes
+
+ * fix collect-tests tox env
+ * create profiler specific unsupported regions
+ * Update smd_model_parallel_pytorch.rst
+
+## v2.24.0 (2021-01-22)
+
+### Features
+
+ * add support for Std:Join for pipelines
+ * Map image name to image uri
+ * friendly names for short URIs
+
+### Bug Fixes and Other Changes
+
+ * increase allowed time for search to get updated
+ * refactor distribution config construction
+
+### Documentation Changes
+
+ * Add SMP 1.2.0 API docs
+
+## v2.23.6 (2021-01-20)
+
+### Bug Fixes and Other Changes
+
+ * add artifact, action, context to virsualizer
+
+## v2.23.5 (2021-01-18)
+
+### Bug Fixes and Other Changes
+
+ * increase time allowed for trial components to index
+
+## v2.23.4.post0 (2021-01-14)
+
+### Documentation Changes
+
+ * update predict_fn implementation for PyTorch EIA 1.5.1
+
+## v2.23.4 (2021-01-13)
+
+### Bug Fixes and Other Changes
+
+ * remove captureWarninig setting
+
+## v2.23.3 (2021-01-12)
+
+### Bug Fixes and Other Changes
+
+ * improve optional dependency error message
+ * add debugger rule container account in PDT
+ * assert step execution first in pipeline test
+ * add service inserted fields to generated Hive DDL
+
+### Documentation Changes
+
+ * fix description for max_wait
+ * use correct classpath in V2 alias documentation.
+ * Bad arg name in feat-store ingestion manager
+
+## v2.23.2 (2021-01-06)
+
+### Bug Fixes and Other Changes
+
+ * remove shell=True in subprocess.check_output
+ * use SecurityConfig dict key
+
+### Documentation Changes
+
+ * remove D212 from ignore to comply with PEP257 standards
+
+## v2.23.1 (2020-12-29)
+
+### Bug Fixes and Other Changes
+
+ * update git utils temp file
+ * Allow online store only FeatureGroups
+
+### Documentation Changes
+
+ * inform contributors when not to mark integration tests as canaries
+ * adding change log for smd model parallel
+
+## v2.23.0 (2020-12-23)
+
+### Features
+
+ * Add support for actions in debugger rules.
+
+### Bug Fixes and Other Changes
+
+ * include sparkml 2.4 in image uri config properly
+ * Mount metadata dir only if it exists
+ * allow urllib3 1.26
+
+## v2.22.0 (2020-12-22)
+
+### Features
+
+ * Support local mode for Amazon SageMaker Processing jobs
+
+### Bug Fixes and Other Changes
+
+ * Add API enhancements for SMP
+ * adjust naming convention; fix links
+ * lower value used in featurestore test
+
+### Documentation Changes
+
+ * Update GTDD instructions
+
+## v2.21.0 (2020-12-21)
+
+### Features
+
+ * remove D205 to enable PEP257 Docstring Conventions
+
+### Bug Fixes and Other Changes
+
+ * Pin smdebug-rulesconfig to 1.0.0
+ * use itertuples to ingest pandas dataframe to FeatureStore
+
 ## v2.20.0 (2020-12-16)
 
 ### Features

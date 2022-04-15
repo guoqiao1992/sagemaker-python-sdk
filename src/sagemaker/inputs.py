@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -41,6 +41,7 @@ class TrainingInput(object):
         shuffle_config=None,
     ):
         """Create a definition for input data used by an SageMaker training job.
+
         See AWS documentation on the ``CreateTrainingJob`` API for more details on the parameters.
 
         Args:
@@ -69,6 +70,8 @@ class TrainingInput(object):
                         a local directory.
                     * 'Pipe' - Amazon SageMaker streams data directly from S3 to the container via
                         a Unix-named pipe.
+                    * 'FastFile' - Amazon SageMaker streams data from S3 on demand instead of
+                        downloading the entire dataset before training begins.
 
             attribute_names (list[str]): A list of one or more attribute names to use that are
                 found in a specified AugmentedManifestFile.
@@ -124,7 +127,7 @@ class ShuffleConfig(object):
 class CreateModelInput(object):
     """A class containing parameters which can be used to create a SageMaker Model
 
-    Attributes:
+    Parameters:
         instance_type (str): type or EC2 instance will be used for model deployment.
         accelerator_type (str): elastic inference accelerator type.
     """
@@ -135,8 +138,9 @@ class CreateModelInput(object):
 
 @attr.s
 class TransformInput(object):
-    """Create a class containing all the parameters which can be used when calling
-    ``sagemaker.transformer.Transformer.transform()``
+    """Create a class containing all the parameters.
+
+    It can be used when calling ``sagemaker.transformer.Transformer.transform()``
     """
 
     data: str = attr.ib()

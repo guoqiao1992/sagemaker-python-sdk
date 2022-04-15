@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -24,8 +24,11 @@ from mock import (
     Mock,
     PropertyMock,
 )
+
 from sagemaker.estimator import Estimator
+from sagemaker.workflow import Properties
 from sagemaker.workflow._utils import _RepackModelStep
+from tests.unit.test_utils import FakeS3, list_tar_files
 from tests.unit import DATA_DIR
 
 REGION = "us-west-2"
@@ -105,15 +108,17 @@ def test_repack_model_step(estimator):
     entry_point = f"{DATA_DIR}/dummy_script.py"
     step = _RepackModelStep(
         name="MyRepackModelStep",
-        estimator=estimator,
+        sagemaker_session=estimator.sagemaker_session,
+        role=estimator.role,
         model_data=model_data,
         entry_point=entry_point,
+        depends_on=["TestStep"],
     )
     request_dict = step.to_request()
 
     hyperparameters = request_dict["Arguments"]["HyperParameters"]
     assert hyperparameters["inference_script"] == '"dummy_script.py"'
-    assert hyperparameters["model_archive"] == '"model.tar.gz"'
+    assert hyperparameters["model_archive"] == '"s3://my-bucket/model.tar.gz"'
     assert hyperparameters["sagemaker_program"] == '"_repack_model.py"'
 
     del request_dict["Arguments"]["HyperParameters"]
@@ -121,6 +126,7 @@ def test_repack_model_step(estimator):
     assert request_dict == {
         "Name": "MyRepackModelStep",
         "Type": "Training",
+        "DependsOn": ["TestStep"],
         "Arguments": {
             "AlgorithmSpecification": {"TrainingInputMode": "File"},
             "DebugHookConfig": {"CollectionConfigurations": [], "S3OutputPath": "s3://my-bucket/"},
@@ -131,7 +137,7 @@ def test_repack_model_step(estimator):
                         "S3DataSource": {
                             "S3DataDistributionType": "FullyReplicated",
                             "S3DataType": "S3Prefix",
-                            "S3Uri": f"s3://{BUCKET}",
+                            "S3Uri": f"s3://{BUCKET}/model.tar.gz",
                         }
                     },
                 }
@@ -152,11 +158,12 @@ def test_repack_model_step(estimator):
 
 
 def test_repack_model_step_with_source_dir(estimator, source_dir):
-    model_data = f"s3://{BUCKET}/model.tar.gz"
+    model_data = Properties(path="Steps.MyStep", shape_name="DescribeModelOutput")
     entry_point = "inference.py"
     step = _RepackModelStep(
         name="MyRepackModelStep",
-        estimator=estimator,
+        sagemaker_session=estimator.sagemaker_session,
+        role=estimator.role,
         model_data=model_data,
         entry_point=entry_point,
         source_dir=source_dir,
@@ -166,7 +173,9 @@ def test_repack_model_step_with_source_dir(estimator, source_dir):
 
     hyperparameters = request_dict["Arguments"]["HyperParameters"]
     assert hyperparameters["inference_script"] == '"inference.py"'
-    assert hyperparameters["model_archive"] == '"model.tar.gz"'
+    assert hyperparameters["model_archive"].expr == {
+        "Std:Join": {"On": "", "Values": [{"Get": "Steps.MyStep"}]}
+    }
     assert hyperparameters["sagemaker_program"] == '"_repack_model.py"'
 
     del request_dict["Arguments"]["HyperParameters"]
@@ -184,7 +193,7 @@ def test_repack_model_step_with_source_dir(estimator, source_dir):
                         "S3DataSource": {
                             "S3DataDistributionType": "FullyReplicated",
                             "S3DataType": "S3Prefix",
-                            "S3Uri": f"s3://{BUCKET}",
+                            "S3Uri": model_data,
                         }
                     },
                 }
@@ -202,3 +211,57 @@ def test_repack_model_step_with_source_dir(estimator, source_dir):
     assert step.properties.TrainingJobName.expr == {
         "Get": "Steps.MyRepackModelStep.TrainingJobName"
     }
+
+
+@pytest.fixture()
+def tmp(tmpdir):
+    yield str(tmpdir)
+
+
+@pytest.fixture()
+def fake_s3(tmp):
+    return FakeS3(tmp)
+
+
+def test_inject_repack_script_s3(estimator, tmp, fake_s3):
+
+    create_file_tree(
+        tmp,
+        [
+            "model-dir/aa",
+            "model-dir/foo/inference.py",
+        ],
+    )
+
+    model_data = Properties(path="Steps.MyStep", shape_name="DescribeModelOutput")
+    entry_point = "inference.py"
+    source_dir_path = "s3://fake/location"
+    step = _RepackModelStep(
+        name="MyRepackModelStep",
+        sagemaker_session=fake_s3.sagemaker_session,
+        role=estimator.role,
+        image_uri="foo",
+        model_data=model_data,
+        entry_point=entry_point,
+        source_dir=source_dir_path,
+    )
+
+    fake_s3.tar_and_upload("model-dir", "s3://fake/location")
+
+    step._inject_repack_script()
+
+    assert list_tar_files(fake_s3.fake_upload_path, tmp) == {
+        "/aa",
+        "/foo/inference.py",
+        "/_repack_model.py",
+    }
+
+
+def create_file_tree(root, tree):
+    for file in tree:
+        try:
+            os.makedirs(os.path.join(root, os.path.dirname(file)))
+        except:  # noqa: E722 Using bare except because p2/3 incompatibility issues.
+            pass
+        with open(os.path.join(root, file), "a") as f:
+            f.write(file)

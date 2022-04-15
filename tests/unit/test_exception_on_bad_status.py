@@ -1,4 +1,4 @@
-# Copyright 2019-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -79,6 +79,26 @@ def test_does_raise_when_incorrect_job_status():
         ), "sagemaker.exceptions.UnexpectedStatusException should have been raised but was not"
     except Exception as e:
         assert type(e) == sagemaker.exceptions.UnexpectedStatusException
+        assert e.actual_status == "Failed"
+        assert "Completed" in e.allowed_statuses
+        assert "Stopped" in e.allowed_statuses
+
+
+def test_does_raise_capacity_error_when_incorrect_job_status():
+    try:
+        job = Mock()
+        sagemaker_session = get_sagemaker_session(returns_status="Failed")
+        sagemaker_session._check_job_status(
+            job,
+            {
+                "TransformationJobStatus": "Failed",
+                "FailureReason": "CapacityError: Unable to provision requested ML compute capacity",
+            },
+            "TransformationJobStatus",
+        )
+        assert False, "sagemaker.exceptions.CapacityError should have been raised but was not"
+    except Exception as e:
+        assert type(e) == sagemaker.exceptions.CapacityError
         assert e.actual_status == "Failed"
         assert "Completed" in e.allowed_statuses
         assert "Stopped" in e.allowed_statuses

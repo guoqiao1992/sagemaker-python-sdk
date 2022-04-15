@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -20,12 +20,15 @@ from sagemaker.model import Model
 MODEL_DATA = "s3://bucket/model.tar.gz"
 MODEL_IMAGE = "mi"
 
+IMAGE_URI = "inference-container-uri"
+
 REGION = "us-west-2"
 
 NEO_REGION_ACCOUNT = "301217895009"
 DESCRIBE_COMPILATION_JOB_RESPONSE = {
     "CompilationJobStatus": "Completed",
     "ModelArtifacts": {"S3ModelArtifacts": "s3://output-path/model.tar.gz"},
+    "InferenceImage": IMAGE_URI,
 }
 
 
@@ -52,12 +55,7 @@ def test_compile_model_for_inferentia(sagemaker_session):
         framework_version="1.15.0",
         job_name="compile-model",
     )
-    assert (
-        "{}.dkr.ecr.{}.amazonaws.com/sagemaker-neo-tensorflow:1.15.0-inf-py3".format(
-            NEO_REGION_ACCOUNT, REGION
-        )
-        == model.image_uri
-    )
+    assert DESCRIBE_COMPILATION_JOB_RESPONSE["InferenceImage"] == model.image_uri
     assert model._is_compiled_model is True
 
 
@@ -269,3 +267,109 @@ def test_deploy_add_compiled_model_suffix_to_endpoint_name_from_model_name(sagem
 
     model.deploy(1, "ml.c4.xlarge")
     assert model.endpoint_name.startswith("{}-ml-c4".format(model_name))
+
+
+def test_compile_with_framework_version_15(sagemaker_session):
+    sagemaker_session.wait_for_compilation_job = Mock(
+        return_value=DESCRIBE_COMPILATION_JOB_RESPONSE
+    )
+
+    model = _create_model(sagemaker_session)
+    model.compile(
+        target_instance_family="ml_c4",
+        input_shape={"data": [1, 3, 1024, 1024]},
+        output_path="s3://output",
+        role="role",
+        framework="pytorch",
+        framework_version="1.5",
+        job_name="compile-model",
+    )
+
+    assert IMAGE_URI == model.image_uri
+
+
+def test_compile_with_framework_version_16(sagemaker_session):
+    sagemaker_session.wait_for_compilation_job = Mock(
+        return_value=DESCRIBE_COMPILATION_JOB_RESPONSE
+    )
+
+    model = _create_model(sagemaker_session)
+    model.compile(
+        target_instance_family="ml_c4",
+        input_shape={"data": [1, 3, 1024, 1024]},
+        output_path="s3://output",
+        role="role",
+        framework="pytorch",
+        framework_version="1.6",
+        job_name="compile-model",
+    )
+
+    assert IMAGE_URI == model.image_uri
+
+
+@patch("sagemaker.session.Session")
+def test_compile_with_pytorch_neo_in_ml_inf(session):
+    session.return_value.boto_region_name = REGION
+
+    model = _create_model()
+    model.compile(
+        target_instance_family="ml_inf",
+        input_shape={"data": [1, 3, 1024, 1024]},
+        output_path="s3://output",
+        role="role",
+        framework="pytorch",
+        framework_version="1.6",
+        job_name="compile-model",
+    )
+
+    assert (
+        "{}.dkr.ecr.{}.amazonaws.com/sagemaker-inference-pytorch:1.6-cpu-py3".format(
+            NEO_REGION_ACCOUNT, REGION
+        )
+        != model.image_uri
+    )
+
+
+@patch("sagemaker.session.Session")
+def test_compile_with_tensorflow_neo_in_ml_inf(session):
+    session.return_value.boto_region_name = REGION
+
+    model = _create_model()
+    model.compile(
+        target_instance_family="ml_inf",
+        input_shape={"data": [1, 3, 1024, 1024]},
+        output_path="s3://output",
+        role="role",
+        framework="tensorflow",
+        framework_version="1.15",
+        job_name="compile-model",
+    )
+
+    assert (
+        "{}.dkr.ecr.{}.amazonaws.com/sagemaker-inference-tensorflow:1.15-cpu-py3".format(
+            NEO_REGION_ACCOUNT, REGION
+        )
+        != model.image_uri
+    )
+
+
+def test_compile_validates_framework_version(sagemaker_session):
+    sagemaker_session.wait_for_compilation_job = Mock(
+        return_value={
+            "CompilationJobStatus": "Completed",
+            "ModelArtifacts": {"S3ModelArtifacts": "s3://output-path/model.tar.gz"},
+            "InferenceImage": None,
+        }
+    )
+    model = _create_model(sagemaker_session)
+    model.compile(
+        target_instance_family="ml_c4",
+        input_shape={"data": [1, 3, 1024, 1024]},
+        output_path="s3://output",
+        role="role",
+        framework="pytorch",
+        framework_version="1.6.1",
+        job_name="compile-model",
+    )
+
+    assert model.image_uri is None

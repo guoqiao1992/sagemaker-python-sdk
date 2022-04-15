@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -22,6 +22,8 @@ import tests.integ
 from sagemaker import ModelPackage
 from sagemaker.mxnet.estimator import MXNet
 from sagemaker.mxnet.model import MXNetModel
+from sagemaker.mxnet.processing import MXNetProcessor
+from sagemaker.serverless import ServerlessInferenceConfig
 from sagemaker.utils import sagemaker_timestamp
 from tests.integ import DATA_DIR, TRAINING_DEFAULT_TIMEOUT_MINUTES
 from tests.integ.kms_utils import get_or_create_kms_key
@@ -65,7 +67,36 @@ def mxnet_training_job(
         return mx.latest_training_job.name
 
 
-@pytest.mark.canary_quick
+@pytest.mark.release
+def test_framework_processing_job_with_deps(
+    sagemaker_session,
+    mxnet_training_latest_version,
+    mxnet_training_latest_py_version,
+    cpu_instance_type,
+):
+    with timeout(minutes=TRAINING_DEFAULT_TIMEOUT_MINUTES):
+        code_path = os.path.join(DATA_DIR, "dummy_code_bundle_with_reqs")
+        entry_point = "main_script.py"
+
+        processor = MXNetProcessor(
+            framework_version=mxnet_training_latest_version,
+            py_version=mxnet_training_latest_py_version,
+            role="SageMakerRole",
+            instance_count=1,
+            instance_type=cpu_instance_type,
+            sagemaker_session=sagemaker_session,
+            base_job_name="test-mxnet",
+        )
+
+        processor.run(
+            code=entry_point,
+            source_dir=code_path,
+            inputs=[],
+            wait=True,
+        )
+
+
+@pytest.mark.release
 def test_attach_deploy(mxnet_training_job, sagemaker_session, cpu_instance_type):
     endpoint_name = "test-mxnet-attach-deploy-{}".format(sagemaker_timestamp())
 
@@ -83,6 +114,7 @@ def test_attach_deploy(mxnet_training_job, sagemaker_session, cpu_instance_type)
         assert result is not None
 
 
+@pytest.mark.slow_test
 def test_deploy_estimator_with_different_instance_types(
     mxnet_training_job,
     sagemaker_session,
@@ -96,7 +128,7 @@ def test_deploy_estimator_with_different_instance_types(
             try:
                 predictor = estimator.deploy(1, instance_type)
 
-                model_name = predictor._model_names[0]
+                model_name = predictor._get_model_names()[0]
                 config_name = sagemaker_session.sagemaker_client.describe_endpoint(
                     EndpointName=predictor.endpoint_name
                 )["EndpointConfigName"]
@@ -155,7 +187,7 @@ def test_deploy_model(
         result = predictor.predict(data)
         assert result is not None
 
-    predictor.delete_model()
+    model.delete_model()
     with pytest.raises(Exception) as exception:
         sagemaker_session.sagemaker_client.describe_model(ModelName=model.name)
         assert "Could not find model" in str(exception.value)
@@ -198,6 +230,54 @@ def test_register_model_package(
         result = predictor.predict(data)
         assert result is not None
         sagemaker_session.sagemaker_client.delete_model_package(ModelPackageName=model_package_name)
+
+
+def test_register_model_package_versioned(
+    mxnet_training_job,
+    sagemaker_session,
+    mxnet_inference_latest_version,
+    mxnet_inference_latest_py_version,
+    cpu_instance_type,
+):
+    endpoint_name = "test-mxnet-deploy-model-{}".format(sagemaker_timestamp())
+
+    with timeout_and_delete_endpoint_by_name(endpoint_name, sagemaker_session):
+        desc = sagemaker_session.sagemaker_client.describe_training_job(
+            TrainingJobName=mxnet_training_job
+        )
+        model_package_group_name = "register-model-package-{}".format(sagemaker_timestamp())
+        sagemaker_session.sagemaker_client.create_model_package_group(
+            ModelPackageGroupName=model_package_group_name
+        )
+        model_data = desc["ModelArtifacts"]["S3ModelArtifacts"]
+        script_path = os.path.join(DATA_DIR, "mxnet_mnist", "mnist.py")
+        model = MXNetModel(
+            model_data,
+            "SageMakerRole",
+            entry_point=script_path,
+            py_version=mxnet_inference_latest_py_version,
+            sagemaker_session=sagemaker_session,
+            framework_version=mxnet_inference_latest_version,
+        )
+        model_pkg = model.register(
+            content_types=["application/json"],
+            response_types=["application/json"],
+            inference_instances=["ml.m5.large"],
+            transform_instances=["ml.m5.large"],
+            model_package_group_name=model_package_group_name,
+            approval_status="Approved",
+        )
+        assert isinstance(model_pkg, ModelPackage)
+        predictor = model.deploy(1, cpu_instance_type, endpoint_name=endpoint_name)
+        data = numpy.zeros(shape=(1, 1, 28, 28))
+        result = predictor.predict(data)
+        assert result is not None
+        sagemaker_session.sagemaker_client.delete_model_package(
+            ModelPackageName=model_pkg.model_package_arn
+        )
+        sagemaker_session.sagemaker_client.delete_model_package_group(
+            ModelPackageGroupName=model_package_group_name
+        )
 
 
 def test_deploy_model_with_tags_and_kms(
@@ -258,6 +338,7 @@ def test_deploy_model_with_tags_and_kms(
         assert endpoint_config["KmsKeyId"] == kms_key_arn
 
 
+@pytest.mark.slow_test
 def test_deploy_model_and_update_endpoint(
     mxnet_training_job,
     sagemaker_session,
@@ -303,7 +384,6 @@ def test_deploy_model_and_update_endpoint(
         assert new_config["ProductionVariants"][0]["InitialInstanceCount"] == 1
 
 
-@pytest.mark.canary_quick
 @pytest.mark.skipif(
     tests.integ.test_region() not in tests.integ.EI_SUPPORTED_REGIONS,
     reason="EI isn't supported in that specific region.",
@@ -312,10 +392,41 @@ def test_deploy_model_with_accelerator(
     mxnet_training_job,
     sagemaker_session,
     mxnet_eia_latest_version,
-    mxnet_eia_py_version,
+    mxnet_eia_latest_py_version,
     cpu_instance_type,
 ):
     endpoint_name = "test-mxnet-deploy-model-ei-{}".format(sagemaker_timestamp())
+
+    with timeout_and_delete_endpoint_by_name(endpoint_name, sagemaker_session):
+        desc = sagemaker_session.sagemaker_client.describe_training_job(
+            TrainingJobName=mxnet_training_job
+        )
+        model_data = desc["ModelArtifacts"]["S3ModelArtifacts"]
+        script_path = os.path.join(DATA_DIR, "mxnet_mnist", "mnist_ei.py")
+        model = MXNetModel(
+            model_data,
+            "SageMakerRole",
+            entry_point=script_path,
+            framework_version=mxnet_eia_latest_version,
+            py_version=mxnet_eia_latest_py_version,
+            sagemaker_session=sagemaker_session,
+        )
+        predictor = model.deploy(
+            1, cpu_instance_type, endpoint_name=endpoint_name, accelerator_type="ml.eia1.medium"
+        )
+
+        data = numpy.zeros(shape=(1, 1, 28, 28))
+        result = predictor.predict(data)
+        assert result is not None
+
+
+def test_deploy_model_with_serverless_inference_config(
+    mxnet_training_job,
+    sagemaker_session,
+    mxnet_inference_latest_version,
+    mxnet_inference_latest_py_version,
+):
+    endpoint_name = "test-mxnet-deploy-model-serverless-{}".format(sagemaker_timestamp())
 
     with timeout_and_delete_endpoint_by_name(endpoint_name, sagemaker_session):
         desc = sagemaker_session.sagemaker_client.describe_training_job(
@@ -327,17 +438,25 @@ def test_deploy_model_with_accelerator(
             model_data,
             "SageMakerRole",
             entry_point=script_path,
-            framework_version=mxnet_eia_latest_version,
-            py_version=mxnet_eia_py_version,
+            py_version=mxnet_inference_latest_py_version,
             sagemaker_session=sagemaker_session,
+            framework_version=mxnet_inference_latest_version,
         )
         predictor = model.deploy(
-            1, cpu_instance_type, endpoint_name=endpoint_name, accelerator_type="ml.eia1.medium"
+            serverless_inference_config=ServerlessInferenceConfig(), endpoint_name=endpoint_name
         )
 
         data = numpy.zeros(shape=(1, 1, 28, 28))
         result = predictor.predict(data)
+
+        print("==========Result is===========")
+        print(result)
         assert result is not None
+
+    model.delete_model()
+    with pytest.raises(Exception) as exception:
+        sagemaker_session.sagemaker_client.describe_model(ModelName=model.name)
+        assert "Could not find model" in str(exception.value)
 
 
 def test_async_fit(

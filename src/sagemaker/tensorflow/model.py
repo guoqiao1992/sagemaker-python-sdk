@@ -1,4 +1,4 @@
-# Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -21,12 +21,11 @@ from sagemaker.deserializers import JSONDeserializer
 from sagemaker.deprecations import removed_kwargs
 from sagemaker.predictor import Predictor
 from sagemaker.serializers import JSONSerializer
+from sagemaker.workflow import is_pipeline_variable
 
 
 class TensorFlowPredictor(Predictor):
-    """A ``Predictor`` implementation for inference against TensorFlow
-    Serving endpoints.
-    """
+    """A ``Predictor`` implementation for inference against TensorFlow Serving endpoints."""
 
     def __init__(
         self,
@@ -77,25 +76,15 @@ class TensorFlowPredictor(Predictor):
         self._model_attributes = ",".join(attributes) if attributes else None
 
     def classify(self, data):
-        """
-        Args:
-            data:
-        """
+        """Placeholder docstring."""
         return self._classify_or_regress(data, "classify")
 
     def regress(self, data):
-        """
-        Args:
-            data:
-        """
+        """Placeholder docstring."""
         return self._classify_or_regress(data, "regress")
 
     def _classify_or_regress(self, data, method):
-        """
-        Args:
-            data:
-            method:
-        """
+        """Placeholder docstring."""
         if method not in ["classify", "regress"]:
             raise ValueError("invalid TensorFlow Serving method: {}".format(method))
 
@@ -107,11 +96,7 @@ class TensorFlowPredictor(Predictor):
         return self.predict(data, args)
 
     def predict(self, data, initial_args=None):
-        """
-        Args:
-            data:
-            initial_args:
-        """
+        """Placeholder docstring."""
         args = dict(initial_args) if initial_args else {}
         if self._model_attributes:
             if "CustomAttributes" in args:
@@ -134,7 +119,7 @@ class TensorFlowModel(sagemaker.model.FrameworkModel):
         logging.ERROR: "error",
         logging.CRITICAL: "crit",
     }
-    LATEST_EIA_VERSION = [2, 0]
+    LATEST_EIA_VERSION = [2, 3]
 
     def __init__(
         self,
@@ -161,10 +146,11 @@ class TensorFlowModel(sagemaker.model.FrameworkModel):
                 file which should be executed as the entry point to model
                 hosting. If ``source_dir`` is specified, then ``entry_point``
                 must point to a file located at the root of ``source_dir``.
-            image_uri (str): A Docker image URI (default: None). If not specified, a
-                default image for TensorFlow Serving will be used. If
-                ``framework_version`` is ``None``, then ``image_uri`` is required.
-                If also ``None``, then a ``ValueError`` will be raised.
+            image_uri (str): A Docker image URI (default: None). If not specified,
+                a default image for TensorFlow Serving will be used.
+                If ``framework_version`` is ``None``, then ``image_uri`` is required.
+                If ``image_uri`` is also ``None``, then a ``ValueError``
+                will be raised.
             framework_version (str): Optional. TensorFlow Serving version you
                 want to use. Defaults to ``None``. Required unless ``image_uri`` is
                 provided.
@@ -216,6 +202,8 @@ class TensorFlowModel(sagemaker.model.FrameworkModel):
         marketplace_cert=False,
         approval_status=None,
         description=None,
+        drift_check_baselines=None,
+        customer_metadata_properties=None,
     ):
         """Creates a model package for creating SageMaker models or listing on Marketplace.
 
@@ -240,9 +228,13 @@ class TensorFlowModel(sagemaker.model.FrameworkModel):
             approval_status (str): Model Approval Status, values can be "Approved", "Rejected",
                 or "PendingManualApproval" (default: "PendingManualApproval").
             description (str): Model Package description (default: None).
+            drift_check_baselines (DriftCheckBaselines): DriftCheckBaselines object (default: None).
+            customer_metadata_properties (dict[str, str]): A dictionary of key-value paired
+                metadata properties (default: None).
+
 
         Returns:
-            str: A string of SageMaker Model Package ARN.
+            A `sagemaker.model.ModelPackage` instance.
         """
         instance_type = inference_instances[0]
         self._init_sagemaker_session_if_does_not_exist(instance_type)
@@ -267,12 +259,14 @@ class TensorFlowModel(sagemaker.model.FrameworkModel):
             marketplace_cert,
             approval_status,
             description,
+            drift_check_baselines=drift_check_baselines,
+            customer_metadata_properties=customer_metadata_properties,
         )
 
     def deploy(
         self,
-        initial_instance_count,
-        instance_type,
+        initial_instance_count=None,
+        instance_type=None,
         serializer=None,
         deserializer=None,
         accelerator_type=None,
@@ -282,6 +276,8 @@ class TensorFlowModel(sagemaker.model.FrameworkModel):
         wait=True,
         data_capture_config=None,
         update_endpoint=None,
+        async_inference_config=None,
+        serverless_inference_config=None,
     ):
         """Deploy a Tensorflow ``Model`` to a SageMaker ``Endpoint``."""
 
@@ -300,32 +296,49 @@ class TensorFlowModel(sagemaker.model.FrameworkModel):
             kms_key=kms_key,
             wait=wait,
             data_capture_config=data_capture_config,
+            async_inference_config=async_inference_config,
+            serverless_inference_config=serverless_inference_config,
             update_endpoint=update_endpoint,
         )
 
     def _eia_supported(self):
         """Return true if TF version is EIA enabled"""
-        return [int(s) for s in self.framework_version.split(".")][:2] <= self.LATEST_EIA_VERSION
+        framework_version = [int(s) for s in self.framework_version.split(".")][:2]
+        return (
+            framework_version != [2, 1]
+            and framework_version != [2, 2]
+            and framework_version <= self.LATEST_EIA_VERSION
+        )
 
-    def prepare_container_def(self, instance_type=None, accelerator_type=None):
+    def prepare_container_def(
+        self, instance_type=None, accelerator_type=None, serverless_inference_config=None
+    ):
         """Prepare the container definition.
 
         Args:
             instance_type: Instance type of the container.
             accelerator_type: Accelerator type, if applicable.
+            serverless_inference_config (sagemaker.serverless.ServerlessInferenceConfig):
+                Specifies configuration related to serverless endpoint. Instance type is
+                not provided in serverless inference. So this is used to find image URIs.
 
         Returns:
             A container definition for deploying a ``Model`` to an ``Endpoint``.
         """
-        if self.image_uri is None and instance_type is None:
-            raise ValueError(
-                "Must supply either an instance type (for choosing CPU vs GPU) or an image URI."
-            )
+        if not self.image_uri:
+            if instance_type is None and serverless_inference_config is None:
+                raise ValueError(
+                    "Must supply either an instance type (for choosing CPU vs GPU) or an image URI."
+                )
 
-        image_uri = self._get_image_uri(instance_type, accelerator_type)
+        image_uri = self._get_image_uri(
+            instance_type, accelerator_type, serverless_inference_config=serverless_inference_config
+        )
         env = self._get_container_env()
 
-        if self.entry_point:
+        # If self.model_data is pipeline variable, model is not yet there.
+        # So defer repacking to later during pipeline execution
+        if self.entry_point and not is_pipeline_variable(self.model_data):
             key_prefix = sagemaker.fw_utils.model_code_key_prefix(
                 self.key_prefix, self.name, image_uri
             )
@@ -348,7 +361,7 @@ class TensorFlowModel(sagemaker.model.FrameworkModel):
         return sagemaker.container_def(image_uri, model_data, env)
 
     def _get_container_env(self):
-        """Placeholder docstring"""
+        """Placeholder docstring."""
         if not self._container_log_level:
             return self.env
 
@@ -360,26 +373,29 @@ class TensorFlowModel(sagemaker.model.FrameworkModel):
         env[self.LOG_LEVEL_PARAM_NAME] = self.LOG_LEVEL_MAP[self._container_log_level]
         return env
 
-    def _get_image_uri(self, instance_type, accelerator_type=None):
-        """
-        Args:
-            instance_type:
-            accelerator_type:
-        """
+    def _get_image_uri(
+        self,
+        instance_type,
+        accelerator_type=None,
+        region_name=None,
+        serverless_inference_config=None,
+    ):
+        """Placeholder docstring."""
         if self.image_uri:
             return self.image_uri
 
         return image_uris.retrieve(
             self._framework_name,
-            self.sagemaker_session.boto_region_name,
+            region_name or self.sagemaker_session.boto_region_name,
             version=self.framework_version,
             instance_type=instance_type,
             accelerator_type=accelerator_type,
             image_scope="inference",
+            serverless_inference_config=serverless_inference_config,
         )
 
     def serving_image_uri(
-        self, region_name, instance_type, accelerator_type=None
+        self, region_name, instance_type, accelerator_type=None, serverless_inference_config=None
     ):  # pylint: disable=unused-argument
         """Create a URI for the serving image.
 
@@ -390,9 +406,17 @@ class TensorFlowModel(sagemaker.model.FrameworkModel):
             accelerator_type (str): The Elastic Inference accelerator type to
                 deploy to the instance for loading and making inferences to the
                 model (default: None). For example, 'ml.eia1.medium'.
+            serverless_inference_config (sagemaker.serverless.ServerlessInferenceConfig):
+                Specifies configuration related to serverless endpoint. Instance type is
+                not provided in serverless inference. So this is used to determine device type.
 
         Returns:
             str: The appropriate image URI based on the given parameters.
 
         """
-        return self._get_image_uri(instance_type=instance_type, accelerator_type=accelerator_type)
+        return self._get_image_uri(
+            instance_type=instance_type,
+            accelerator_type=accelerator_type,
+            region_name=region_name,
+            serverless_inference_config=serverless_inference_config,
+        )

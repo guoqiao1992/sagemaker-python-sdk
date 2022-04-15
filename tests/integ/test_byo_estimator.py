@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -46,7 +46,7 @@ class _FactorizationMachineSerializer(SimpleBaseSerializer):
         return json.dumps(js)
 
 
-@pytest.mark.canary_quick
+@pytest.mark.release
 def test_byo_estimator(sagemaker_session, region, cpu_instance_type, training_set):
     """Use Factorization Machines algorithm as an example here.
 

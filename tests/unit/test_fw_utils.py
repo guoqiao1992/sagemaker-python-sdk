@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -24,6 +24,7 @@ from mock import Mock, patch
 
 from sagemaker import fw_utils
 from sagemaker.utils import name_from_image
+from sagemaker.session_settings import SessionSettings
 
 TIMESTAMP = "2017-10-10-14-14-15"
 
@@ -93,6 +94,40 @@ def test_tar_and_upload_dir_s3_with_kms(utils, sagemaker_session):
     obj.upload_file.assert_called_with(utils.create_tar_file(), ExtraArgs=extra_args)
 
 
+@patch("sagemaker.utils")
+def test_tar_and_upload_dir_s3_kms_enabled_by_default(utils, sagemaker_session):
+    bucket = "mybucket"
+    s3_key_prefix = "something/source"
+    script = "inference.py"
+    result = fw_utils.tar_and_upload_dir(sagemaker_session, bucket, s3_key_prefix, script)
+
+    assert result == fw_utils.UploadedCode(
+        "s3://{}/{}/sourcedir.tar.gz".format(bucket, s3_key_prefix), script
+    )
+
+    extra_args = {"ServerSideEncryption": "aws:kms"}
+    obj = sagemaker_session.resource("s3").Object("", "")
+    obj.upload_file.assert_called_with(utils.create_tar_file(), ExtraArgs=extra_args)
+
+
+@patch("sagemaker.utils")
+def test_tar_and_upload_dir_s3_without_kms_with_overridden_settings(utils, sagemaker_session):
+    bucket = "mybucket"
+    s3_key_prefix = "something/source"
+    script = "inference.py"
+    settings = SessionSettings(encrypt_repacked_artifacts=False)
+    result = fw_utils.tar_and_upload_dir(
+        sagemaker_session, bucket, s3_key_prefix, script, settings=settings
+    )
+
+    assert result == fw_utils.UploadedCode(
+        "s3://{}/{}/sourcedir.tar.gz".format(bucket, s3_key_prefix), script
+    )
+
+    obj = sagemaker_session.resource("s3").Object("", "")
+    obj.upload_file.assert_called_with(utils.create_tar_file(), ExtraArgs=None)
+
+
 def test_mp_config_partition_exists():
     mp_parameters = {}
     with pytest.raises(ValueError):
@@ -114,6 +149,8 @@ def test_mp_config_string_names(pipeline, placement_strategy, optimize, trace_de
         "placement_strategy": placement_strategy,
         "optimize": optimize,
         "trace_device": trace_device,
+        "active_microbatches": 8,
+        "deterministic_server": True,
     }
     fw_utils.validate_mp_config(mp_parameters)
 
@@ -551,11 +588,15 @@ def test_validate_version_or_image_args_raises():
 
 def test_validate_smdistributed_not_raises():
     smdataparallel_enabled = {"smdistributed": {"dataparallel": {"enabled": True}}}
+    smdataparallel_enabled_custom_mpi = {
+        "smdistributed": {"dataparallel": {"enabled": True, "custom_mpi_options": "--verbose"}}
+    }
     smdataparallel_disabled = {"smdistributed": {"dataparallel": {"enabled": False}}}
     instance_types = list(fw_utils.SM_DATAPARALLEL_SUPPORTED_INSTANCE_TYPES)
 
     good_args = [
         (smdataparallel_enabled, "custom-container"),
+        (smdataparallel_enabled_custom_mpi, "custom-container"),
         (smdataparallel_disabled, "custom-container"),
     ]
     frameworks = ["tensorflow", "pytorch"]
@@ -574,17 +615,17 @@ def test_validate_smdistributed_not_raises():
 
 def test_validate_smdistributed_raises():
     bad_args = [
-        {"smdistributed": {"dataparallel": {"enabled": True}}},
         {"smdistributed": "dummy"},
         {"smdistributed": {"dummy"}},
         {"smdistributed": {"dummy": "val"}},
         {"smdistributed": {"dummy": {"enabled": True}}},
     ]
+    instance_types = list(fw_utils.SM_DATAPARALLEL_SUPPORTED_INSTANCE_TYPES)
     frameworks = ["tensorflow", "pytorch"]
-    for framework, distribution in product(frameworks, bad_args):
+    for framework, distribution, instance_type in product(frameworks, bad_args, instance_types):
         with pytest.raises(ValueError):
             fw_utils.validate_smdistributed(
-                instance_type=None,
+                instance_type=instance_type,
                 framework_name=framework,
                 framework_version=None,
                 py_version=None,
@@ -622,6 +663,9 @@ def test_validate_smdataparallel_args_raises():
 
 def test_validate_smdataparallel_args_not_raises():
     smdataparallel_enabled = {"smdistributed": {"dataparallel": {"enabled": True}}}
+    smdataparallel_enabled_custom_mpi = {
+        "smdistributed": {"dataparallel": {"enabled": True, "custom_mpi_options": "--verbose"}}
+    }
     smdataparallel_disabled = {"smdistributed": {"dataparallel": {"enabled": False}}}
 
     # Cases {PT|TF2}
@@ -630,8 +674,45 @@ def test_validate_smdataparallel_args_not_raises():
 
     good_args = [
         (None, None, None, None, smdataparallel_disabled),
-        ("ml.p3.16xlarge", "tensorflow", "2.3.1", "py3", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.3.1", "py37", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.3.2", "py37", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.3", "py37", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.4.1", "py37", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.4.3", "py37", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.4", "py37", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.5.0", "py37", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.5.1", "py37", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.5", "py37", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.6.0", "py38", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.6.2", "py38", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.6.3", "py38", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.6", "py38", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.7.1", "py38", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.7", "py38", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.8.0", "py39", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.8", "py39", smdataparallel_enabled),
         ("ml.p3.16xlarge", "pytorch", "1.6.0", "py3", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "pytorch", "1.6", "py3", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "pytorch", "1.7.1", "py3", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "pytorch", "1.7", "py3", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "pytorch", "1.8.0", "py3", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "pytorch", "1.8.1", "py3", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "pytorch", "1.8", "py3", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "pytorch", "1.9.1", "py38", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "pytorch", "1.9", "py38", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "pytorch", "1.10", "py38", smdataparallel_enabled),
+        ("ml.p3.16xlarge", "tensorflow", "2.4.1", "py3", smdataparallel_enabled_custom_mpi),
+        ("ml.p3.16xlarge", "tensorflow", "2.4.1", "py37", smdataparallel_enabled_custom_mpi),
+        ("ml.p3.16xlarge", "tensorflow", "2.4.3", "py3", smdataparallel_enabled_custom_mpi),
+        ("ml.p3.16xlarge", "tensorflow", "2.4.3", "py37", smdataparallel_enabled_custom_mpi),
+        ("ml.p3.16xlarge", "tensorflow", "2.5.1", "py37", smdataparallel_enabled_custom_mpi),
+        ("ml.p3.16xlarge", "tensorflow", "2.6.0", "py38", smdataparallel_enabled_custom_mpi),
+        ("ml.p3.16xlarge", "tensorflow", "2.6.2", "py38", smdataparallel_enabled_custom_mpi),
+        ("ml.p3.16xlarge", "tensorflow", "2.6.3", "py38", smdataparallel_enabled_custom_mpi),
+        ("ml.p3.16xlarge", "tensorflow", "2.7.1", "py38", smdataparallel_enabled_custom_mpi),
+        ("ml.p3.16xlarge", "tensorflow", "2.8.0", "py39", smdataparallel_enabled_custom_mpi),
+        ("ml.p3.16xlarge", "pytorch", "1.8.0", "py3", smdataparallel_enabled_custom_mpi),
+        ("ml.p3.16xlarge", "pytorch", "1.9.1", "py38", smdataparallel_enabled_custom_mpi),
     ]
     for instance_type, framework_name, framework_version, py_version, distribution in good_args:
         fw_utils._validate_smdataparallel_args(

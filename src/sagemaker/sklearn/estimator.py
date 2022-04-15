@@ -1,4 +1,4 @@
-# Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -43,13 +43,14 @@ class SKLearn(Framework):
         source_dir=None,
         hyperparameters=None,
         image_uri=None,
+        image_uri_region=None,
         **kwargs
     ):
-        """This ``Estimator`` executes an Scikit-learn script in a managed
-        Scikit-learn execution environment, within a SageMaker Training Job. The
-        managed Scikit-learn environment is an Amazon-built Docker container
-        that executes functions defined in the supplied ``entry_point`` Python
-        script.
+        """Creates a SKLearn Estimator for Scikit-learn environment.
+
+        It will execute an Scikit-learn script within a SageMaker Training Job. The managed
+        Scikit-learn environment is an Amazon-built Docker container that executes functions
+        defined in the supplied ``entry_point`` Python script.
 
         Training is started by calling
         :meth:`~sagemaker.amazon.estimator.Framework.fit` on this Estimator.
@@ -99,6 +100,9 @@ class SKLearn(Framework):
                 If ``framework_version`` or ``py_version`` are ``None``, then
                 ``image_uri`` is required. If also ``None``, then a ``ValueError``
                 will be raised.
+            image_uri_region (str): If ``image_uri`` argument is None, the image uri
+                associated with this object will be in this region.
+                Default: region associated with SageMaker session.
             **kwargs: Additional kwargs passed to the
                 :class:`~sagemaker.estimator.Framework` constructor.
 
@@ -144,7 +148,7 @@ class SKLearn(Framework):
         if image_uri is None:
             self.image_uri = image_uris.retrieve(
                 SKLearn._framework_name,
-                self.sagemaker_session.boto_region_name,
+                image_uri_region or self.sagemaker_session.boto_region_name,
                 version=self.framework_version,
                 py_version=self.py_version,
                 instance_type=instance_type,
@@ -160,8 +164,7 @@ class SKLearn(Framework):
         dependencies=None,
         **kwargs
     ):
-        """Create a SageMaker ``SKLearnModel`` object that can be deployed to an
-        ``Endpoint``.
+        """Create a SageMaker ``SKLearnModel`` object that can be deployed to an ``Endpoint``.
 
         Args:
             model_server_workers (int): Optional. The number of worker processes
@@ -219,8 +222,7 @@ class SKLearn(Framework):
 
     @classmethod
     def _prepare_init_params_from_job_description(cls, job_details, model_channel_name=None):
-        """Convert the job description to init params that can be handled by the
-        class constructor
+        """Convert the job description to init params that can be handled by the class constructor.
 
         Args:
             job_details: the returned job details from a describe_training_job
@@ -261,10 +263,7 @@ class SKLearn(Framework):
 
 
 def _validate_not_gpu_instance_type(training_instance_type):
-    """
-    Args:
-        training_instance_type:
-    """
+    """Placeholder docstring."""
     gpu_instance_types = [
         "ml.p2.xlarge",
         "ml.p2.8xlarge",

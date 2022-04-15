@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -18,9 +18,9 @@ import os
 import boto3
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-TRAINING_DEFAULT_TIMEOUT_MINUTES = 20
-TUNING_DEFAULT_TIMEOUT_MINUTES = 20
-TRANSFORM_DEFAULT_TIMEOUT_MINUTES = 20
+TRAINING_DEFAULT_TIMEOUT_MINUTES = 40
+TUNING_DEFAULT_TIMEOUT_MINUTES = 40
+TRANSFORM_DEFAULT_TIMEOUT_MINUTES = 40
 AUTO_ML_DEFAULT_TIMEMOUT_MINUTES = 60
 
 # these regions have some p2 and p3 instances, but not enough for continuous testing
@@ -65,6 +65,25 @@ TRAINING_NO_P2_REGIONS = [
     "me-south-1",
     "sa-east-1",
     "us-west-1",
+]
+TRAINING_NO_P3_REGIONS = [
+    "af-south-1",
+    "ap-east-1",
+    "ap-southeast-1",  # it has p3, but not enough
+    "ap-southeast-2",  # it has p3, but not enough
+    "ca-central-1",  # it has p3, but not enough
+    "eu-central-1",  # it has p3, but not enough
+    "eu-north-1",
+    "eu-west-2",  # it has p3, but not enough
+    "eu-west-3",
+    "eu-south-1",
+    "me-south-1",
+    "sa-east-1",
+    "us-west-1",
+    "ap-northeast-1",  # it has p3, but not enough
+    "ap-south-1",
+    "ap-northeast-2",  # it has p3, but not enough
+    "us-east-2",  # it has p3, but not enough
 ]
 
 # EI is currently only supported in the following regions
@@ -118,6 +137,17 @@ NO_AUTO_ML_REGIONS = [
     "eu-south-1",
 ]
 NO_MODEL_MONITORING_REGIONS = ["me-south-1", "af-south-1", "eu-south-1"]
+DRIFT_CHECK_BASELINES_SUPPORTED_REGIONS = [
+    "us-east-2",
+    "ca-central-1",
+    "me-south-1",
+    "us-west-2",
+    "ap-east-1",
+    "ap-northeast-2",
+    "ap-southeast-2",
+    "eu-west-2",
+    "us-east-1",
+]
 EDGE_PACKAGING_SUPPORTED_REGIONS = [
     "us-east-2",
     "us-west-2",
@@ -125,6 +155,10 @@ EDGE_PACKAGING_SUPPORTED_REGIONS = [
     "eu-west-1",
     "ap-northeast-1",
     "eu-central-1",
+]
+# TODO: SM Training Compiler team to add all supported regions.
+TRAINING_COMPILER_SUPPORTED_REGIONS = [
+    "us-west-2",
 ]
 # Data parallelism need to be tested with p3.16xlarge.
 # The instance type is expensive and not supported in all the regions.

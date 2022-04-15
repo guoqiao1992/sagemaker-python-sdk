@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -11,6 +11,7 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 """This module contains code related to Amazon SageMaker Explainability AI Model Monitoring.
+
 These classes assist with suggesting baselines and creating monitoring schedules for monitoring
 bias metrics and feature attribution of SageMaker Endpoints.
 """
@@ -25,7 +26,7 @@ from sagemaker.model_monitor import model_monitoring as mm
 from sagemaker import image_uris, s3
 from sagemaker.session import Session
 from sagemaker.utils import name_from_base
-from sagemaker.clarify import SageMakerClarifyProcessor
+from sagemaker.clarify import SageMakerClarifyProcessor, ModelPredictedLabelConfig
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -396,7 +397,6 @@ class ClarifyModelMonitor(mm.ModelMonitor):
 
         if network_config is not None:
             network_config_dict = network_config._to_request_dict()
-            self._validate_network_config(network_config_dict)
             request_dict["NetworkConfig"] = network_config_dict
         elif existing_network_config is not None:
             request_dict["NetworkConfig"] = existing_network_config
@@ -475,9 +475,15 @@ class ModelBiasMonitor(ClarifyModelMonitor):
             features_attribute=data_config.features,
         )
         if model_predicted_label_config is not None:
-            latest_baselining_job_config.inference_attribute = model_predicted_label_config.label
+            latest_baselining_job_config.inference_attribute = (
+                model_predicted_label_config.label
+                if model_predicted_label_config.label is None
+                else str(model_predicted_label_config.label)
+            )
             latest_baselining_job_config.probability_attribute = (
                 model_predicted_label_config.probability
+                if model_predicted_label_config.probability is None
+                else str(model_predicted_label_config.probability)
             )
             latest_baselining_job_config.probability_threshold_attribute = (
                 model_predicted_label_config.probability_threshold
@@ -608,6 +614,7 @@ class ModelBiasMonitor(ClarifyModelMonitor):
         network_config=None,
     ):
         """Updates the existing monitoring schedule.
+
         If more options than schedule_cron_expression are to be updated, a new job definition will
         be created to hold them. The old job definition will not be deleted.
 
@@ -825,8 +832,10 @@ class ModelExplainabilityMonitor(ClarifyModelMonitor):
                 specific explainability method. Currently, only SHAP is supported.
             model_config (:class:`~sagemaker.clarify.ModelConfig`): Config of the model and its
                 endpoint to be created.
-            model_scores:  Index or JSONPath location in the model output for the predicted scores
-                to be explained. This is not required if the model output is a single score.
+            model_scores (int or str or :class:`~sagemaker.clarify.ModelPredictedLabelConfig`):
+                Index or JSONPath to locate the predicted scores in the model output. This is not
+                required if the model output is a single score. Alternatively, it can be an instance
+                of ModelPredictedLabelConfig to provide more parameters like label_headers.
             wait (bool): Whether the call should wait until the job completes (default: False).
             logs (bool): Whether to show the logs produced by the job.
                 Only meaningful when wait is True (default: False).
@@ -856,14 +865,24 @@ class ModelExplainabilityMonitor(ClarifyModelMonitor):
         headers = copy.deepcopy(data_config.headers)
         if headers and data_config.label in headers:
             headers.remove(data_config.label)
+        if model_scores is None:
+            inference_attribute = None
+            label_headers = None
+        elif isinstance(model_scores, ModelPredictedLabelConfig):
+            inference_attribute = str(model_scores.label)
+            label_headers = model_scores.label_headers
+        else:
+            inference_attribute = str(model_scores)
+            label_headers = None
         self.latest_baselining_job_config = ClarifyBaseliningConfig(
             analysis_config=ExplainabilityAnalysisConfig(
                 explainability_config=explainability_config,
                 model_config=model_config,
                 headers=headers,
+                label_headers=label_headers,
             ),
             features_attribute=data_config.features,
-            inference_attribute=model_scores,
+            inference_attribute=inference_attribute,
         )
         self.latest_baselining_job_name = baselining_job_name
         self.latest_baselining_job = ClarifyBaseliningJob(
@@ -988,6 +1007,7 @@ class ModelExplainabilityMonitor(ClarifyModelMonitor):
         network_config=None,
     ):
         """Updates the existing monitoring schedule.
+
         If more options than schedule_cron_expression are to be updated, a new job definition will
         be created to hold them. The old job definition will not be deleted.
 
@@ -1156,7 +1176,7 @@ class ModelExplainabilityMonitor(ClarifyModelMonitor):
 class ExplainabilityAnalysisConfig:
     """Analysis configuration for ModelExplainabilityMonitor."""
 
-    def __init__(self, explainability_config, model_config, headers=None):
+    def __init__(self, explainability_config, model_config, headers=None, label_headers=None):
         """Creates an analysis config dictionary.
 
         Args:
@@ -1165,13 +1185,19 @@ class ExplainabilityAnalysisConfig:
             model_config (sagemaker.clarify.ModelConfig): Config object related to bias
                 configurations.
             headers (list[str]): A list of feature names (without label) of model/endpint input.
+            label_headers (list[str]): List of headers, each for a predicted score in model output.
+                It is used to beautify the analysis report by replacing placeholders like "label0".
+
         """
+        predictor_config = model_config.get_predictor_config()
         self.analysis_config = {
             "methods": explainability_config.get_explainability_config(),
-            "predictor": model_config.get_predictor_config(),
+            "predictor": predictor_config,
         }
         if headers is not None:
             self.analysis_config["headers"] = headers
+        if label_headers is not None:
+            predictor_config["label_headers"] = label_headers
 
     def _to_dict(self):
         """Generates a request dictionary using the parameters provided to the class."""
@@ -1245,6 +1271,7 @@ class ClarifyBaseliningJob(mm.BaseliningJob):
         """Returns a sagemaker.model_monitor.
 
         Constraints object representing the constraints JSON file generated by this baselining job.
+
         Args:
             file_name (str): Keep this parameter to align with method signature in super class,
                 but it will be ignored.

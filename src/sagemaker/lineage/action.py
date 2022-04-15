@@ -13,8 +13,22 @@
 """This module contains code to create and manage SageMaker ``Actions``."""
 from __future__ import absolute_import
 
+from typing import Optional, Iterator, List
+from datetime import datetime
+
+from sagemaker.session import Session
 from sagemaker.apiutils import _base_types
 from sagemaker.lineage import _api_types, _utils
+from sagemaker.lineage._api_types import ActionSource, ActionSummary
+from sagemaker.lineage.artifact import Artifact
+
+from sagemaker.lineage.query import (
+    LineageQuery,
+    LineageFilter,
+    LineageSourceEnum,
+    LineageEntityEnum,
+    LineageQueryDirectionEnum,
+)
 
 
 class Action(_base_types.Record):
@@ -53,24 +67,24 @@ class Action(_base_types.Record):
         last_modified_by (obj): Contextual info on which account created the action.
     """
 
-    action_arn = None
-    action_name = None
-    action_type = None
-    description = None
-    status = None
-    source = None
-    properties = None
-    properties_to_remove = None
-    tags = None
-    creation_time = None
-    created_by = None
-    last_modified_time = None
-    last_modified_by = None
+    action_arn: str = None
+    action_name: str = None
+    action_type: str = None
+    description: str = None
+    status: str = None
+    source: ActionSource = None
+    properties: dict = None
+    properties_to_remove: list = None
+    tags: list = None
+    creation_time: datetime = None
+    created_by: str = None
+    last_modified_time: datetime = None
+    last_modified_by: str = None
 
-    _boto_create_method = "create_action"
-    _boto_load_method = "describe_action"
-    _boto_update_method = "update_action"
-    _boto_delete_method = "delete_action"
+    _boto_create_method: str = "create_action"
+    _boto_load_method: str = "describe_action"
+    _boto_update_method: str = "update_action"
+    _boto_delete_method: str = "delete_action"
 
     _boto_update_members = [
         "action_name",
@@ -84,7 +98,7 @@ class Action(_base_types.Record):
 
     _custom_boto_types = {"source": (_api_types.ActionSource, False)}
 
-    def save(self):
+    def save(self) -> "Action":
         """Save the state of this Action to SageMaker.
 
         Returns:
@@ -92,7 +106,7 @@ class Action(_base_types.Record):
         """
         return self._invoke_api(self._boto_update_method, self._boto_update_members)
 
-    def delete(self, disassociate=False):
+    def delete(self, disassociate: bool = False):
         """Delete the action.
 
         Args:
@@ -104,13 +118,14 @@ class Action(_base_types.Record):
                 source_arn=self.action_arn, sagemaker_session=self.sagemaker_session
             )
             _utils._disassociate(
-                destination_arn=self.action_arn, sagemaker_session=self.sagemaker_session
+                destination_arn=self.action_arn,
+                sagemaker_session=self.sagemaker_session,
             )
 
         self._invoke_api(self._boto_delete_method, self._boto_delete_members)
 
     @classmethod
-    def load(cls, action_name, sagemaker_session=None):
+    def load(cls, action_name: str, sagemaker_session=None) -> "Action":
         """Load an existing action and return an ``Action`` object representing it.
 
         Args:
@@ -154,16 +169,16 @@ class Action(_base_types.Record):
     @classmethod
     def create(
         cls,
-        action_name=None,
-        source_uri=None,
-        source_type=None,
-        action_type=None,
-        description=None,
-        status=None,
-        properties=None,
-        tags=None,
-        sagemaker_session=None,
-    ):
+        action_name: str = None,
+        source_uri: str = None,
+        source_type: str = None,
+        action_type: str = None,
+        description: str = None,
+        status: str = None,
+        properties: dict = None,
+        tags: dict = None,
+        sagemaker_session: Session = None,
+    ) -> "Action":
         """Create an action and return an ``Action`` object representing it.
 
         Args:
@@ -186,7 +201,7 @@ class Action(_base_types.Record):
         return super(Action, cls)._construct(
             cls._boto_create_method,
             action_name=action_name,
-            source=_api_types.ContextSource(source_uri=source_uri, source_type=source_type),
+            source=_api_types.ActionSource(source_uri=source_uri, source_type=source_type),
             action_type=action_type,
             description=description,
             status=status,
@@ -198,16 +213,16 @@ class Action(_base_types.Record):
     @classmethod
     def list(
         cls,
-        source_uri=None,
-        action_type=None,
-        created_after=None,
-        created_before=None,
-        sort_by=None,
-        sort_order=None,
-        sagemaker_session=None,
-        max_results=None,
-        next_token=None,
-    ):
+        source_uri: Optional[str] = None,
+        action_type: Optional[str] = None,
+        created_after: Optional[datetime] = None,
+        created_before: Optional[datetime] = None,
+        sort_by: Optional[str] = None,
+        sort_order: Optional[str] = None,
+        sagemaker_session: Session = None,
+        max_results: Optional[int] = None,
+        next_token: Optional[str] = None,
+    ) -> Iterator[ActionSummary]:
         """Return a list of action summaries.
 
         Args:
@@ -244,3 +259,86 @@ class Action(_base_types.Record):
             max_results=max_results,
             next_token=next_token,
         )
+
+    def artifacts(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.BOTH
+    ) -> List[Artifact]:
+        """Use a lineage query to retrieve all artifacts that use this action.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of Artifacts: Artifacts.
+        """
+        query_filter = LineageFilter(entities=[LineageEntityEnum.ARTIFACT])
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.action_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+        return [vertex.to_lineage_object() for vertex in query_result.vertices]
+
+
+class ModelPackageApprovalAction(Action):
+    """An Amazon SageMaker model package approval action, which is part of a SageMaker lineage."""
+
+    def datasets(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.ASCENDANTS
+    ) -> List[Artifact]:
+        """Use a lineage query to retrieve all upstream datasets that use this action.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of Artifacts: Artifacts representing a dataset.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.ARTIFACT], sources=[LineageSourceEnum.DATASET]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.action_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+        return [vertex.to_lineage_object() for vertex in query_result.vertices]
+
+    def model_package(self):
+        """Get model package from model package approval action.
+
+        Returns:
+            Model package.
+        """
+        source_uri = self.source.source_uri
+        if source_uri is None:
+            return None
+
+        model_package_name = source_uri.split("/")[1]
+        return self.sagemaker_session.sagemaker_client.describe_model_package(
+            ModelPackageName=model_package_name
+        )
+
+    def endpoints(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.DESCENDANTS
+    ) -> List:
+        """Use a lineage query to retrieve downstream endpoint contexts that use this action.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of Contexts: Contexts representing an endpoint.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.CONTEXT], sources=[LineageSourceEnum.ENDPOINT]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.action_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+        return [vertex.to_lineage_object() for vertex in query_result.vertices]

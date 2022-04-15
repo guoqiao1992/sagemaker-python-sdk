@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -81,6 +81,7 @@ SECURITY_GROUP_IDS = ["test_security_group_ids"]
 SUBNETS = ["test_subnets"]
 NETWORK_CONFIG = NetworkConfig(
     enable_network_isolation=False,
+    encrypt_inter_container_traffic=False,
     security_group_ids=SECURITY_GROUP_IDS,
     subnets=SUBNETS,
 )
@@ -93,8 +94,8 @@ END_TIME_OFFSET = "-PT0H"
 OUTPUT_S3_URI = "s3://bucket/output"
 CONSTRAINTS = Constraints("", "s3://bucket/analysis.json")
 FEATURES_ATTRIBUTE = "features"
-INFERENCE_ATTRIBUTE = "predicted_label"
-PROBABILITY_ATTRIBUTE = "probabilities"
+INFERENCE_ATTRIBUTE = 0
+PROBABILITY_ATTRIBUTE = 1
 PROBABILITY_THRESHOLD_ATTRIBUTE = 0.6
 APP_SPECIFICATION = {
     "ConfigUri": ANALYSIS_CONFIG_S3_URI,
@@ -131,8 +132,8 @@ BIAS_JOB_INPUT = {
         "StartTimeOffset": START_TIME_OFFSET,
         "EndTimeOffset": END_TIME_OFFSET,
         "FeaturesAttribute": FEATURES_ATTRIBUTE,
-        "InferenceAttribute": INFERENCE_ATTRIBUTE,
-        "ProbabilityAttribute": PROBABILITY_ATTRIBUTE,
+        "InferenceAttribute": str(INFERENCE_ATTRIBUTE),
+        "ProbabilityAttribute": str(PROBABILITY_ATTRIBUTE),
         "ProbabilityThresholdAttribute": PROBABILITY_THRESHOLD_ATTRIBUTE,
     },
     "GroundTruthS3Input": {"S3Uri": GROUND_TRUTH_S3_URI},
@@ -155,7 +156,7 @@ EXPLAINABILITY_JOB_INPUT = {
         "S3InputMode": S3_INPUT_MODE,
         "S3DataDistributionType": S3_DATA_DISTRIBUTION_TYPE,
         "FeaturesAttribute": FEATURES_ATTRIBUTE,
-        "InferenceAttribute": INFERENCE_ATTRIBUTE,
+        "InferenceAttribute": str(INFERENCE_ATTRIBUTE),
     }
 }
 EXPLAINABILITY_JOB_DEFINITION = {
@@ -279,6 +280,7 @@ BASELINING_DATASET_S3_URI = "s3://bucket/dataset"
 # for bias
 ANALYSIS_CONFIG_LABEL = "Label"
 ANALYSIS_CONFIG_HEADERS_OF_FEATURES = ["F1", "F2", "F3"]
+ANALYSIS_CONFIG_LABEL_HEADERS = ["Decision"]
 ANALYSIS_CONFIG_ALL_HEADERS = [*ANALYSIS_CONFIG_HEADERS_OF_FEATURES, ANALYSIS_CONFIG_LABEL]
 ANALYSIS_CONFIG_LABEL_VALUES = [1]
 ANALYSIS_CONFIG_FACET_NAME = "F1"
@@ -330,6 +332,11 @@ EXPLAINABILITY_ANALYSIS_CONFIG = {
         "content_type": CONTENT_TYPE,
     },
 }
+EXPLAINABILITY_ANALYSIS_CONFIG_WITH_LABEL_HEADERS = copy.deepcopy(EXPLAINABILITY_ANALYSIS_CONFIG)
+# noinspection PyTypeChecker
+EXPLAINABILITY_ANALYSIS_CONFIG_WITH_LABEL_HEADERS["predictor"][
+    "label_headers"
+] = ANALYSIS_CONFIG_LABEL_HEADERS
 
 
 @pytest.fixture()
@@ -665,6 +672,13 @@ def test_model_bias_monitor_suggest_baseline(
         sagemaker_session=sagemaker_session,
         analysis_config=None,  # will pick up config from baselining job
         baseline_job_name=BASELINING_JOB_NAME,
+        endpoint_input=EndpointInput(
+            endpoint_name=ENDPOINT_NAME,
+            destination=ENDPOINT_INPUT_LOCAL_PATH,
+            start_time_offset=START_TIME_OFFSET,
+            end_time_offset=END_TIME_OFFSET,
+            #  will pick up attributes from baselining job
+        ),
     )
 
     # update schedule
@@ -837,8 +851,8 @@ def _test_model_bias_monitor_create_schedule(
         start_time_offset=START_TIME_OFFSET,
         end_time_offset=END_TIME_OFFSET,
         features_attribute=FEATURES_ATTRIBUTE,
-        inference_attribute=INFERENCE_ATTRIBUTE,
-        probability_attribute=PROBABILITY_ATTRIBUTE,
+        inference_attribute=str(INFERENCE_ATTRIBUTE),
+        probability_attribute=str(PROBABILITY_ATTRIBUTE),
         probability_threshold_attribute=PROBABILITY_THRESHOLD_ATTRIBUTE,
     ),
 ):
@@ -1041,12 +1055,31 @@ def test_explainability_analysis_config(shap_config, model_config):
         explainability_config=shap_config,
         model_config=model_config,
         headers=ANALYSIS_CONFIG_HEADERS_OF_FEATURES,
+        label_headers=ANALYSIS_CONFIG_LABEL_HEADERS,
     )
-    assert EXPLAINABILITY_ANALYSIS_CONFIG == config._to_dict()
+    assert EXPLAINABILITY_ANALYSIS_CONFIG_WITH_LABEL_HEADERS == config._to_dict()
 
 
+@pytest.mark.parametrize(
+    "model_scores,explainability_analysis_config",
+    [
+        (INFERENCE_ATTRIBUTE, EXPLAINABILITY_ANALYSIS_CONFIG),
+        (
+            ModelPredictedLabelConfig(
+                label=INFERENCE_ATTRIBUTE, label_headers=ANALYSIS_CONFIG_LABEL_HEADERS
+            ),
+            EXPLAINABILITY_ANALYSIS_CONFIG_WITH_LABEL_HEADERS,
+        ),
+    ],
+)
 def test_model_explainability_monitor_suggest_baseline(
-    model_explainability_monitor, sagemaker_session, data_config, shap_config, model_config
+    model_explainability_monitor,
+    sagemaker_session,
+    data_config,
+    shap_config,
+    model_config,
+    model_scores,
+    explainability_analysis_config,
 ):
     clarify_model_monitor = model_explainability_monitor
     # suggest baseline
@@ -1054,12 +1087,12 @@ def test_model_explainability_monitor_suggest_baseline(
         data_config=data_config,
         explainability_config=shap_config,
         model_config=model_config,
-        model_scores=INFERENCE_ATTRIBUTE,
+        model_scores=model_scores,
         job_name=BASELINING_JOB_NAME,
     )
     assert isinstance(clarify_model_monitor.latest_baselining_job, ClarifyBaseliningJob)
     assert (
-        EXPLAINABILITY_ANALYSIS_CONFIG
+        explainability_analysis_config
         == clarify_model_monitor.latest_baselining_job_config.analysis_config._to_dict()
     )
     clarify_baselining_job = clarify_model_monitor.latest_baselining_job
@@ -1074,6 +1107,8 @@ def test_model_explainability_monitor_suggest_baseline(
         analysis_config=None,  # will pick up config from baselining job
         baseline_job_name=BASELINING_JOB_NAME,
         endpoint_input=ENDPOINT_NAME,
+        explainability_analysis_config=explainability_analysis_config,
+        #  will pick up attributes from baselining job
     )
 
     # update schedule
@@ -1125,6 +1160,7 @@ def test_model_explainability_monitor_created_with_config(
         sagemaker_session=sagemaker_session,
         analysis_config=analysis_config,
         constraints=CONSTRAINTS,
+        explainability_analysis_config=EXPLAINABILITY_ANALYSIS_CONFIG,
     )
 
     # update schedule
@@ -1253,8 +1289,9 @@ def _test_model_explainability_monitor_create_schedule(
         endpoint_name=ENDPOINT_NAME,
         destination=ENDPOINT_INPUT_LOCAL_PATH,
         features_attribute=FEATURES_ATTRIBUTE,
-        inference_attribute=INFERENCE_ATTRIBUTE,
+        inference_attribute=str(INFERENCE_ATTRIBUTE),
     ),
+    explainability_analysis_config=None,
 ):
     # create schedule
     with patch(
@@ -1270,7 +1307,7 @@ def _test_model_explainability_monitor_create_schedule(
         )
         if not isinstance(analysis_config, str):
             upload.assert_called_once()
-            assert json.loads(upload.call_args[0][0]) == EXPLAINABILITY_ANALYSIS_CONFIG
+            assert json.loads(upload.call_args[0][0]) == explainability_analysis_config
 
     # validation
     expected_arguments = {

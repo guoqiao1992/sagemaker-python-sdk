@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -143,6 +143,7 @@ class _SparkProcessorBase(ScriptProcessor):
         """
         self.history_server = None
         self._spark_event_logs_s3_uri = None
+
         session = sagemaker_session or Session()
         region = session.boto_region_name
 
@@ -168,6 +169,39 @@ class _SparkProcessorBase(ScriptProcessor):
             env=env,
             tags=tags,
             network_config=network_config,
+        )
+
+    def get_run_args(
+        self,
+        code,
+        inputs=None,
+        outputs=None,
+        arguments=None,
+    ):
+        """Returns a RunArgs object.
+
+        For processors (:class:`~sagemaker.spark.processing.PySparkProcessor`,
+            :class:`~sagemaker.spark.processing.SparkJar`) that have special
+            run() arguments, this object contains the normalized arguments for passing to
+            :class:`~sagemaker.workflow.steps.ProcessingStep`.
+
+        Args:
+            code (str): This can be an S3 URI or a local path to a file with the framework
+                script to run.
+            inputs (list[:class:`~sagemaker.processing.ProcessingInput`]): Input files for
+                the processing job. These must be provided as
+                :class:`~sagemaker.processing.ProcessingInput` objects (default: None).
+            outputs (list[:class:`~sagemaker.processing.ProcessingOutput`]): Outputs for
+                the processing job. These can be specified as either path strings or
+                :class:`~sagemaker.processing.ProcessingOutput` objects (default: None).
+            arguments (list[str]): A list of string arguments to be passed to a
+                processing job (default: None).
+        """
+        return super().get_run_args(
+            code=code,
+            inputs=inputs,
+            outputs=outputs,
+            arguments=arguments,
         )
 
     def run(
@@ -200,8 +234,16 @@ class _SparkProcessorBase(ScriptProcessor):
             job_name (str): Processing job name. If not specified, the processor generates
                 a default job name, based on the base job name and current timestamp.
             experiment_config (dict[str, str]): Experiment management configuration.
-                Dictionary contains three optional keys:
+                Optionally, the dict can contain three keys:
                 'ExperimentName', 'TrialName', and 'TrialComponentDisplayName'.
+                The behavior of setting these keys is as follows:
+                * If `ExperimentName` is supplied but `TrialName` is not a Trial will be
+                automatically created and the job's Trial Component associated with the Trial.
+                * If `TrialName` is supplied and the Trial already exists the job's Trial Component
+                will be associated with the Trial.
+                * If both `ExperimentName` and `TrialName` are not supplied the trial component
+                will be unassociated.
+                * `TrialComponentDisplayName` is used for display in Studio.
             kms_key (str): The ARN of the KMS key that is used to encrypt the
                 user code file (default: None).
         """
@@ -684,6 +726,73 @@ class PySparkProcessor(_SparkProcessorBase):
             network_config=network_config,
         )
 
+    def get_run_args(
+        self,
+        submit_app,
+        submit_py_files=None,
+        submit_jars=None,
+        submit_files=None,
+        inputs=None,
+        outputs=None,
+        arguments=None,
+        job_name=None,
+        configuration=None,
+        spark_event_logs_s3_uri=None,
+    ):
+        """Returns a RunArgs object.
+
+        This object contains the normalized inputs, outputs and arguments
+        needed when using a ``PySparkProcessor`` in a
+        :class:`~sagemaker.workflow.steps.ProcessingStep`.
+
+        Args:
+            submit_app (str): Path (local or S3) to Python file to submit to Spark
+                as the primary application. This is translated to the `code`
+                property on the returned `RunArgs` object.
+            submit_py_files (list[str]): List of paths (local or S3) to provide for
+                `spark-submit --py-files` option
+            submit_jars (list[str]): List of paths (local or S3) to provide for
+                `spark-submit --jars` option
+            submit_files (list[str]): List of paths (local or S3) to provide for
+                `spark-submit --files` option
+            inputs (list[:class:`~sagemaker.processing.ProcessingInput`]): Input files for
+                the processing job. These must be provided as
+                :class:`~sagemaker.processing.ProcessingInput` objects (default: None).
+            outputs (list[:class:`~sagemaker.processing.ProcessingOutput`]): Outputs for
+                the processing job. These can be specified as either path strings or
+                :class:`~sagemaker.processing.ProcessingOutput` objects (default: None).
+            arguments (list[str]): A list of string arguments to be passed to a
+                processing job (default: None).
+            job_name (str): Processing job name. If not specified, the processor generates
+                a default job name, based on the base job name and current timestamp.
+            configuration (list[dict] or dict): Configuration for Hadoop, Spark, or Hive.
+                List or dictionary of EMR-style classifications.
+                https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-configure-apps.html
+            spark_event_logs_s3_uri (str): S3 path where spark application events will
+                be published to.
+        """
+        self._current_job_name = self._generate_current_job_name(job_name=job_name)
+
+        if not submit_app:
+            raise ValueError("submit_app is required")
+
+        extended_inputs, extended_outputs = self._extend_processing_args(
+            inputs=inputs,
+            outputs=outputs,
+            submit_py_files=submit_py_files,
+            submit_jars=submit_jars,
+            submit_files=submit_files,
+            configuration=configuration,
+            spark_event_logs_s3_uri=spark_event_logs_s3_uri,
+        )
+
+        return super().get_run_args(
+            code=submit_app,
+            inputs=extended_inputs,
+            outputs=extended_outputs,
+            arguments=arguments,
+        )
+
     def run(
         self,
         submit_app,
@@ -726,8 +835,16 @@ class PySparkProcessor(_SparkProcessorBase):
             job_name (str): Processing job name. If not specified, the processor generates
                 a default job name, based on the base job name and current timestamp.
             experiment_config (dict[str, str]): Experiment management configuration.
-                Dictionary contains three optional keys:
+                Optionally, the dict can contain three keys:
                 'ExperimentName', 'TrialName', and 'TrialComponentDisplayName'.
+                The behavior of setting these keys is as follows:
+                * If `ExperimentName` is supplied but `TrialName` is not a Trial will be
+                automatically created and the job's Trial Component associated with the Trial.
+                * If `TrialName` is supplied and the Trial already exists the job's Trial Component
+                will be associated with the Trial.
+                * If both `ExperimentName` and `TrialName` are not supplied the trial component
+                will be unassociated.
+                * `TrialComponentDisplayName` is used for display in Studio.
             configuration (list[dict] or dict): Configuration for Hadoop, Spark, or Hive.
                 List or dictionary of EMR-style classifications.
                 https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-configure-apps.html
@@ -737,14 +854,13 @@ class PySparkProcessor(_SparkProcessorBase):
                 user code file (default: None).
         """
         self._current_job_name = self._generate_current_job_name(job_name=job_name)
-        self.command = [_SparkProcessorBase._default_command]
 
         if not submit_app:
             raise ValueError("submit_app is required")
 
         extended_inputs, extended_outputs = self._extend_processing_args(
-            inputs,
-            outputs,
+            inputs=inputs,
+            outputs=outputs,
             submit_py_files=submit_py_files,
             submit_jars=submit_jars,
             submit_files=submit_files,
@@ -761,6 +877,7 @@ class PySparkProcessor(_SparkProcessorBase):
             logs=logs,
             job_name=self._current_job_name,
             experiment_config=experiment_config,
+            kms_key=kms_key,
         )
 
     def _extend_processing_args(self, inputs, outputs, **kwargs):
@@ -771,6 +888,7 @@ class PySparkProcessor(_SparkProcessorBase):
             outputs: Processing outputs.
             kwargs: Additional keyword arguments passed to `super()`.
         """
+        self.command = [_SparkProcessorBase._default_command]
         extended_inputs = self._handle_script_dependencies(
             inputs, kwargs.get("submit_py_files"), FileType.PYTHON
         )
@@ -865,6 +983,73 @@ class SparkJarProcessor(_SparkProcessorBase):
             network_config=network_config,
         )
 
+    def get_run_args(
+        self,
+        submit_app,
+        submit_class=None,
+        submit_jars=None,
+        submit_files=None,
+        inputs=None,
+        outputs=None,
+        arguments=None,
+        job_name=None,
+        configuration=None,
+        spark_event_logs_s3_uri=None,
+    ):
+        """Returns a RunArgs object.
+
+        This object contains the normalized inputs, outputs and arguments
+        needed when using a ``SparkJarProcessor`` in a
+        :class:`~sagemaker.workflow.steps.ProcessingStep`.
+
+        Args:
+            submit_app (str): Path (local or S3) to Python file to submit to Spark
+                as the primary application. This is translated to the `code`
+                property on the returned `RunArgs` object
+            submit_class (str): Java class reference to submit to Spark as the primary
+                application
+            submit_jars (list[str]): List of paths (local or S3) to provide for
+                `spark-submit --jars` option
+            submit_files (list[str]): List of paths (local or S3) to provide for
+                `spark-submit --files` option
+            inputs (list[:class:`~sagemaker.processing.ProcessingInput`]): Input files for
+                the processing job. These must be provided as
+                :class:`~sagemaker.processing.ProcessingInput` objects (default: None).
+            outputs (list[:class:`~sagemaker.processing.ProcessingOutput`]): Outputs for
+                the processing job. These can be specified as either path strings or
+                :class:`~sagemaker.processing.ProcessingOutput` objects (default: None).
+            arguments (list[str]): A list of string arguments to be passed to a
+                processing job (default: None).
+            job_name (str): Processing job name. If not specified, the processor generates
+                a default job name, based on the base job name and current timestamp.
+            configuration (list[dict] or dict): Configuration for Hadoop, Spark, or Hive.
+                List or dictionary of EMR-style classifications.
+                https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-configure-apps.html
+            spark_event_logs_s3_uri (str): S3 path where spark application events will
+                be published to.
+        """
+        self._current_job_name = self._generate_current_job_name(job_name=job_name)
+
+        if not submit_app:
+            raise ValueError("submit_app is required")
+
+        extended_inputs, extended_outputs = self._extend_processing_args(
+            inputs=inputs,
+            outputs=outputs,
+            submit_class=submit_class,
+            submit_jars=submit_jars,
+            submit_files=submit_files,
+            configuration=configuration,
+            spark_event_logs_s3_uri=spark_event_logs_s3_uri,
+        )
+
+        return super().get_run_args(
+            code=submit_app,
+            inputs=extended_inputs,
+            outputs=extended_outputs,
+            arguments=arguments,
+        )
+
     def run(
         self,
         submit_app,
@@ -907,8 +1092,16 @@ class SparkJarProcessor(_SparkProcessorBase):
             job_name (str): Processing job name. If not specified, the processor generates
                 a default job name, based on the base job name and current timestamp.
             experiment_config (dict[str, str]): Experiment management configuration.
-                Dictionary contais three optional keys:
+                Optionally, the dict can contain three keys:
                 'ExperimentName', 'TrialName', and 'TrialComponentDisplayName'.
+                The behavior of setting these keys is as follows:
+                * If `ExperimentName` is supplied but `TrialName` is not a Trial will be
+                automatically created and the job's Trial Component associated with the Trial.
+                * If `TrialName` is supplied and the Trial already exists the job's Trial Component
+                will be associated with the Trial.
+                * If both `ExperimentName` and `TrialName` are not supplied the trial component
+                will be unassociated.
+                * `TrialComponentDisplayName` is used for display in Studio.
             configuration (list[dict] or dict): Configuration for Hadoop, Spark, or Hive.
                 List or dictionary of EMR-style classifications.
                 https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-configure-apps.html
@@ -918,14 +1111,13 @@ class SparkJarProcessor(_SparkProcessorBase):
                 user code file (default: None).
         """
         self._current_job_name = self._generate_current_job_name(job_name=job_name)
-        self.command = [_SparkProcessorBase._default_command]
 
         if not submit_app:
             raise ValueError("submit_app is required")
 
         extended_inputs, extended_outputs = self._extend_processing_args(
-            inputs,
-            outputs,
+            inputs=inputs,
+            outputs=outputs,
             submit_class=submit_class,
             submit_jars=submit_jars,
             submit_files=submit_files,
@@ -946,6 +1138,7 @@ class SparkJarProcessor(_SparkProcessorBase):
         )
 
     def _extend_processing_args(self, inputs, outputs, **kwargs):
+        self.command = [_SparkProcessorBase._default_command]
         if kwargs.get("submit_class"):
             self.command.extend(["--class", kwargs.get("submit_class")])
         else:

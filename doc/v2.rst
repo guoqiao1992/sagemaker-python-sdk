@@ -265,6 +265,12 @@ Please use :func:`sagemaker.s3.parse_s3_url` instead.
 
 The class ``sagemaker.session.ModelContainer`` has been deprecated, as it is not needed for creating inference pipelines.
 
+``sagemaker.workflow.condition_step.JsonGet``
+---------------------------------------------
+
+The class ``sagemaker.workflow.condition_step.JsonGet`` has been deprecated.
+Please use :class:`sagemaker.workflow.functions.JsonGet` instead.
+
 Parameter and Class Name Changes
 ================================
 
@@ -318,9 +324,9 @@ The follow serializer/deserializer classes have been renamed and/or moved:
 +--------------------------------------------------------+-------------------------------------------------------+
 | ``sagemaker.predictor._NPYSerializer``                 | ``sagemaker.serializers.NumpySerializer``             |
 +--------------------------------------------------------+-------------------------------------------------------+
-| ``sagemaker.amazon.common.numpy_to_record_serializer`` | ``sagemaker.amazon.serializers.RecordSerializer``     |
+| ``sagemaker.amazon.common.numpy_to_record_serializer`` | ``sagemaker.amazon.common.RecordSerializer``          |
 +--------------------------------------------------------+-------------------------------------------------------+
-| ``sagemaker.amazon.common.record_deserializer``        | ``sagemaker.amazon.deserializers.RecordDeserializer`` |
+| ``sagemaker.amazon.common.record_deserializer``        | ``sagemaker.amazon.common.RecordDeserializer``        |
 +--------------------------------------------------------+-------------------------------------------------------+
 | ``sagemaker.predictor._JsonDeserializer``              | ``sagemaker.deserializers.JSONDeserializer``          |
 +--------------------------------------------------------+-------------------------------------------------------+

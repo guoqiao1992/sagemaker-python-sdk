@@ -1,4 +1,4 @@
-# Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -18,7 +18,7 @@ import logging
 import re
 
 from sagemaker import image_uris, fw_utils
-from sagemaker.estimator import Framework
+from sagemaker.estimator import Framework, EstimatorBase
 from sagemaker.model import FrameworkModel, SAGEMAKER_OUTPUT_LOCATION
 from sagemaker.mxnet.model import MXNetModel
 from sagemaker.tensorflow.model import TensorFlowModel
@@ -45,6 +45,7 @@ TOOLKIT_FRAMEWORK_VERSION_MAP = {
         "0.6": {"tensorflow": "1.12"},
         "0.8.2": {"tensorflow": "2.1"},
         "0.8.5": {"tensorflow": "2.1", "pytorch": "1.5"},
+        "1.6.0": {"tensorflow": "2.5.0", "pytorch": "1.8.1"},
     },
 }
 
@@ -69,7 +70,7 @@ class RLEstimator(Framework):
 
     COACH_LATEST_VERSION_TF = "0.11.1"
     COACH_LATEST_VERSION_MXNET = "0.11.0"
-    RAY_LATEST_VERSION = "0.8.5"
+    RAY_LATEST_VERSION = "1.6.0"
 
     def __init__(
         self,
@@ -83,11 +84,11 @@ class RLEstimator(Framework):
         metric_definitions=None,
         **kwargs
     ):
-        """This Estimator executes an RLEstimator script in a managed
-        Reinforcement Learning (RL) execution environment within a SageMaker
-        Training Job. The managed RL environment is an Amazon-built Docker
-        container that executes functions defined in the supplied
-        ``entry_point`` Python script.
+        """Creates an RLEstimator for managed Reinforcement Learning (RL).
+
+        It will execute an RLEstimator script within a SageMaker Training Job. The managed RL
+        environment is an Amazon-built Docker container that executes functions defined in the
+        supplied ``entry_point`` Python script.
 
         Training is started by calling
         :meth:`~sagemaker.amazon.estimator.Framework.fit` on this Estimator.
@@ -177,8 +178,7 @@ class RLEstimator(Framework):
         dependencies=None,
         **kwargs
     ):
-        """Create a SageMaker ``RLEstimatorModel`` object that can be deployed
-        to an Endpoint.
+        """Create a SageMaker ``RLEstimatorModel`` object that can be deployed to an Endpoint.
 
         Args:
             role (str): The ``ExecutionRoleArn`` IAM Role ARN for the ``Model``,
@@ -289,8 +289,9 @@ class RLEstimator(Framework):
 
     @classmethod
     def _prepare_init_params_from_job_description(cls, job_details, model_channel_name=None):
-        """Convert the job description to init params that can be handled by the
-        class constructor
+        """Convert the job description to init params.
+
+        This is done so that the init params can be handled by the class constructor.
 
         Args:
             job_details: the returned job details from a describe_training_job
@@ -330,9 +331,7 @@ class RLEstimator(Framework):
         return init_params
 
     def hyperparameters(self):
-        """Return hyperparameters used by your custom TensorFlow code during
-        model training.
-        """
+        """Return hyperparameters used by your custom TensorFlow code during model training."""
         hyperparameters = super(RLEstimator, self).hyperparameters()
 
         additional_hyperparameters = {
@@ -341,15 +340,14 @@ class RLEstimator(Framework):
             SAGEMAKER_ESTIMATOR: SAGEMAKER_ESTIMATOR_VALUE,
         }
 
-        hyperparameters.update(Framework._json_encode_hyperparameters(additional_hyperparameters))
+        hyperparameters.update(
+            EstimatorBase._json_encode_hyperparameters(additional_hyperparameters)
+        )
         return hyperparameters
 
     @classmethod
     def _toolkit_and_version_from_tag(cls, image_tag):
-        """
-        Args:
-            image_tag:
-        """
+        """Placeholder docstring."""
         tag_pattern = re.compile(
             "^([A-Z]*|[a-z]*)(\d.*)-(cpu|gpu)-(py2|py3)$"  # noqa: W605,E501 pylint: disable=anomalous-backslash-in-string
         )
@@ -360,10 +358,7 @@ class RLEstimator(Framework):
 
     @classmethod
     def _validate_framework_format(cls, framework):
-        """
-        Args:
-            framework:
-        """
+        """Placeholder docstring."""
         if framework and framework not in list(RLFramework):
             raise ValueError(
                 "Invalid type: {}, valid RL frameworks types are: {}".format(
@@ -373,10 +368,7 @@ class RLEstimator(Framework):
 
     @classmethod
     def _validate_toolkit_format(cls, toolkit):
-        """
-        Args:
-            toolkit:
-        """
+        """Placeholder docstring."""
         if toolkit and toolkit not in list(RLToolkit):
             raise ValueError(
                 "Invalid type: {}, valid RL toolkits types are: {}".format(toolkit, list(RLToolkit))
@@ -384,13 +376,7 @@ class RLEstimator(Framework):
 
     @classmethod
     def _validate_images_args(cls, toolkit, toolkit_version, framework, image_uri):
-        """
-        Args:
-            toolkit:
-            toolkit_version:
-            framework:
-            image_uri:
-        """
+        """Placeholder docstring."""
         cls._validate_toolkit_format(toolkit)
         cls._validate_framework_format(framework)
 
@@ -425,12 +411,7 @@ class RLEstimator(Framework):
 
     @classmethod
     def _is_combination_supported(cls, toolkit, toolkit_version, framework):
-        """
-        Args:
-            toolkit:
-            toolkit_version:
-            framework:
-        """
+        """Placeholder docstring."""
         supported_versions = TOOLKIT_FRAMEWORK_VERSION_MAP.get(toolkit, None)
         if supported_versions:
             supported_frameworks = supported_versions.get(toolkit_version, None)
@@ -440,12 +421,7 @@ class RLEstimator(Framework):
 
     @classmethod
     def _validate_toolkit_support(cls, toolkit, toolkit_version, framework):
-        """
-        Args:
-            toolkit:
-            toolkit_version:
-            framework:
-        """
+        """Placeholder docstring."""
         if not cls._is_combination_supported(toolkit, toolkit_version, framework):
             raise AttributeError(
                 "Provided `{}-{}` and `{}` combination is not supported.".format(

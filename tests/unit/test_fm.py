@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -115,7 +115,7 @@ def test_all_hyperparameters(sagemaker_session):
         factors_init_scale=1.101,
         factors_init_sigma=1.202,
         factors_init_value=1.303,
-        **ALL_REQ_ARGS
+        **ALL_REQ_ARGS,
     )
     assert fm.hyperparameters() == dict(
         num_factors=str(ALL_REQ_ARGS["num_factors"]),

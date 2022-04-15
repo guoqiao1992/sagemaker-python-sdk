@@ -15,8 +15,12 @@ from __future__ import absolute_import
 
 import datetime
 import logging
+import time
+
+import pytest
 
 from sagemaker.lineage import context
+from sagemaker.lineage.query import LineageQueryDirectionEnum
 
 
 def test_create_delete(context_obj):
@@ -27,6 +31,16 @@ def test_create_delete(context_obj):
 def test_create_delete_with_association(context_obj_with_association):
     # fixture does create and then delete, this test ensures it happens at least once
     assert context_obj_with_association.context_arn
+
+
+def test_action(static_endpoint_context, sagemaker_session):
+    actions_from_query = static_endpoint_context.actions(
+        direction=LineageQueryDirectionEnum.ASCENDANTS
+    )
+
+    assert len(actions_from_query) > 0
+    for action in actions_from_query:
+        assert "action" in action.action_arn
 
 
 def test_save(context_obj, sagemaker_session):
@@ -78,6 +92,7 @@ def test_list(context_objs, sagemaker_session):
     assert context_names
 
 
+@pytest.mark.timeout(30)
 def test_tag(context_obj, sagemaker_session):
     tag = {"Key": "foo", "Value": "bar"}
     context_obj.set_tag(tag)
@@ -88,10 +103,14 @@ def test_tag(context_obj, sagemaker_session):
         )["Tags"]
         if actual_tags:
             break
-    assert len(actual_tags) == 1
+        time.sleep(5)
+    # When sagemaker-client-config endpoint-url is passed as argument to hit some endpoints,
+    # length of actual tags will be greater than 1
+    assert len(actual_tags) > 0
     assert actual_tags[0] == tag
 
 
+@pytest.mark.timeout(30)
 def test_tags(context_obj, sagemaker_session):
     tags = [{"Key": "foo1", "Value": "bar1"}]
     context_obj.set_tags(tags)
@@ -102,5 +121,8 @@ def test_tags(context_obj, sagemaker_session):
         )["Tags"]
         if actual_tags:
             break
-    assert len(actual_tags) == 1
-    assert actual_tags == tags
+        time.sleep(5)
+    # When sagemaker-client-config endpoint-url is passed as argument to hit some endpoints,
+    # length of actual tags will be greater than 1
+    assert len(actual_tags) > 0
+    assert [actual_tags[-1]] == tags

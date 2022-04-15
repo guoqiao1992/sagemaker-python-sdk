@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -10,7 +10,7 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-"""Placeholder docstring."""
+"""Placeholder docstring"""
 from __future__ import print_function, absolute_import
 
 from abc import ABCMeta, abstractmethod
@@ -38,10 +38,12 @@ METRICS_PERIOD_DEFAULT = 60  # seconds
 
 class AnalyticsMetricsBase(with_metaclass(ABCMeta, object)):
     """Base class for tuning job or training job analytics classes.
+
     Understands common functionality like persistence and caching.
     """
 
     def __init__(self):
+        """Initializes ``AnalyticsMetricsBase`` instance."""
         self._dataframe = None
 
     def export_csv(self, filename):
@@ -54,8 +56,9 @@ class AnalyticsMetricsBase(with_metaclass(ABCMeta, object)):
 
     def dataframe(self, force_refresh=False):
         """A pandas dataframe with lots of interesting results about this object.
-        Created by calling SageMaker List and Describe APIs and
-        converting them into a convenient tabular summary.
+
+        Created by calling SageMaker List and Describe APIs and converting them into a
+        convenient tabular summary.
 
         Args:
             force_refresh (bool): Set to True to fetch the latest data from
@@ -73,8 +76,8 @@ class AnalyticsMetricsBase(with_metaclass(ABCMeta, object)):
 
     def clear_cache(self):
         """Clear the object of all local caches of API methods.
-        So that the next time any properties are accessed they will be refreshed from the
-        service.
+
+        So that the next time any properties are accessed they will be refreshed from the service.
         """
         self._dataframe = None
 
@@ -103,7 +106,7 @@ class HyperparameterTuningJobAnalytics(AnalyticsMetricsBase):
 
     @property
     def name(self):
-        """Name of the HyperparameterTuningJob being analyzed."""
+        """Name of the HyperparameterTuningJob being analyzed"""
         return self._tuning_job_name
 
     def __repr__(self):
@@ -156,6 +159,7 @@ class HyperparameterTuningJobAnalytics(AnalyticsMetricsBase):
     @property
     def tuning_ranges(self):
         """A dictionary describing the ranges of all tuned hyperparameters.
+
         The keys are the names of the hyperparameter, and the values are the ranges.
 
         The output can take one of two forms:
@@ -207,7 +211,7 @@ class HyperparameterTuningJobAnalytics(AnalyticsMetricsBase):
         }
 
     def _prepare_parameter_ranges(self, parameter_ranges):
-        """Convert parameter ranges a dictionary using the parameter range names as the keys."""
+        """Convert parameter ranges a dictionary using the parameter range names as the keys"""
         out = {}
         for _, ranges in parameter_ranges.items():
             for param in ranges:
@@ -257,7 +261,11 @@ class HyperparameterTuningJobAnalytics(AnalyticsMetricsBase):
             )
             new_output = raw_result["TrainingJobSummaries"]
             output.extend(new_output)
-            logger.debug("Got %d more TrainingJobs. Total so far: %d", len(new_output), len(output))
+            logger.debug(
+                "Got %d more TrainingJobs. Total so far: %d",
+                len(new_output),
+                len(output),
+            )
             if ("NextToken" in raw_result) and (len(new_output) > 0):
                 next_args["NextToken"] = raw_result["NextToken"]
             else:
@@ -313,7 +321,7 @@ class TrainingJobAnalytics(AnalyticsMetricsBase):
 
     @property
     def name(self):
-        """Name of the TrainingJob being analyzed."""
+        """Name of the TrainingJob being analyzed"""
         return self._training_job_name
 
     def __repr__(self):
@@ -340,7 +348,7 @@ class TrainingJobAnalytics(AnalyticsMetricsBase):
             a dict with the `start_time` and `end_time`.
         """
         description = self._sage_client.describe_training_job(TrainingJobName=self.name)
-        start_time = self._start_time or description[u"TrainingStartTime"]  # datetime object
+        start_time = self._start_time or description["TrainingStartTime"]  # datetime object
         # Incrementing end time by 1 min since CloudWatch drops seconds before finding the logs.
         # This results in logs being searched in the time range in which the correct log line was
         # not present.
@@ -349,7 +357,7 @@ class TrainingJobAnalytics(AnalyticsMetricsBase):
         #       CW will consider end time as 2018-10-22 08:25 and will not be able to search the
         #           correct log.
         end_time = self._end_time or description.get(
-            u"TrainingEndTime", datetime.datetime.utcnow()
+            "TrainingEndTime", datetime.datetime.utcnow()
         ) + datetime.timedelta(minutes=1)
 
         return {"start_time": start_time, "end_time": end_time}
@@ -360,7 +368,7 @@ class TrainingJobAnalytics(AnalyticsMetricsBase):
         return pd.DataFrame(self._data)
 
     def _fetch_metric(self, metric_name):
-        """Fetch all the values of a named metric, and add them to _data.
+        """Fetch all the values of a named metric, and add them to _data
 
         Args:
             metric_name: The metric name to fetch.
@@ -564,6 +572,7 @@ class ExperimentAnalytics(AnalyticsMetricsBase):
 
     def _reshape_parameters(self, parameters):
         """Reshape trial component parameters to a pandas column.
+
         Args:
             parameters: trial component parameters
         Returns:
@@ -578,6 +587,7 @@ class ExperimentAnalytics(AnalyticsMetricsBase):
 
     def _reshape_metrics(self, metrics):
         """Reshape trial component metrics to a pandas column.
+
         Args:
             metrics: trial component metrics
         Returns:
@@ -598,6 +608,7 @@ class ExperimentAnalytics(AnalyticsMetricsBase):
 
     def _reshape_artifacts(self, artifacts, _artifact_names):
         """Reshape trial component input/output artifacts to a pandas column.
+
         Args:
             artifacts: trial component input/output artifacts
         Returns:
@@ -631,6 +642,7 @@ class ExperimentAnalytics(AnalyticsMetricsBase):
 
     def _reshape(self, trial_component):
         """Reshape trial component data to pandas columns.
+
         Args:
             trial_component: dict representing a trial component
         Returns:
@@ -660,9 +672,8 @@ class ExperimentAnalytics(AnalyticsMetricsBase):
         return out
 
     def _fetch_dataframe(self):
-        """Return a pandas dataframe with all the trial_components,
-        along with their parameters and metrics.
-        """
+        """Return a pandas dataframe includes all the trial_components."""
+
         df = pd.DataFrame([self._reshape(component) for component in self._get_trial_components()])
         return df
 

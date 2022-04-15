@@ -1,4 +1,4 @@
-# Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -65,9 +65,7 @@ class SKLearnPredictor(Predictor):
 
 
 class SKLearnModel(FrameworkModel):
-    """An Scikit-learn SageMaker ``Model`` that can be deployed to a SageMaker
-    ``Endpoint``.
-    """
+    """An Scikit-learn SageMaker ``Model`` that can be deployed to a SageMaker ``Endpoint``."""
 
     _framework_name = defaults.SKLEARN_NAME
 
@@ -104,11 +102,10 @@ class SKLearnModel(FrameworkModel):
                 model training code (default: 'py3'). Currently, 'py3' is the only
                 supported version. If ``None`` is passed in, ``image_uri`` must be
                 provided.
-            image_uri (str): A Docker image URI (default: None). If not specified, a
-                default image for Scikit-learn will be used.
-
+            image_uri (str): A Docker image URI (default: None). If not specified,
+                a default image for Scikit-learn will be used.
                 If ``framework_version`` or ``py_version`` are ``None``, then
-                ``image_uri`` is required. If also ``None``, then a ``ValueError``
+                ``image_uri`` is required. If ``image_uri`` is also ``None``, then a ``ValueError``
                 will be raised.
             predictor_cls (callable[str, sagemaker.session.Session]): A function
                 to call to create a predictor with an endpoint name and
@@ -140,9 +137,77 @@ class SKLearnModel(FrameworkModel):
 
         self.model_server_workers = model_server_workers
 
-    def prepare_container_def(self, instance_type=None, accelerator_type=None):
-        """Return a container definition with framework configuration set in
-        model environment variables.
+    def register(
+        self,
+        content_types,
+        response_types,
+        inference_instances,
+        transform_instances,
+        model_package_name=None,
+        model_package_group_name=None,
+        image_uri=None,
+        model_metrics=None,
+        metadata_properties=None,
+        marketplace_cert=False,
+        approval_status=None,
+        description=None,
+    ):
+        """Creates a model package for creating SageMaker models or listing on Marketplace.
+
+        Args:
+            content_types (list): The supported MIME types for the input data.
+            response_types (list): The supported MIME types for the output data.
+            inference_instances (list): A list of the instance types that are used to
+                generate inferences in real-time.
+            transform_instances (list): A list of the instance types on which a transformation
+                job can be run or on which an endpoint can be deployed.
+            model_package_name (str): Model Package name, exclusive to `model_package_group_name`,
+                using `model_package_name` makes the Model Package un-versioned (default: None).
+            model_package_group_name (str): Model Package Group name, exclusive to
+                `model_package_name`, using `model_package_group_name` makes the Model Package
+                versioned (default: None).
+            image_uri (str): Inference image uri for the container. Model class' self.image will
+                be used if it is None (default: None).
+            model_metrics (ModelMetrics): ModelMetrics object (default: None).
+            metadata_properties (MetadataProperties): MetadataProperties object (default: None).
+            marketplace_cert (bool): A boolean value indicating if the Model Package is certified
+                for AWS Marketplace (default: False).
+            approval_status (str): Model Approval Status, values can be "Approved", "Rejected",
+                or "PendingManualApproval" (default: "PendingManualApproval").
+            description (str): Model Package description (default: None).
+
+        Returns:
+            A `sagemaker.model.ModelPackage` instance.
+        """
+        instance_type = inference_instances[0]
+        self._init_sagemaker_session_if_does_not_exist(instance_type)
+
+        if image_uri:
+            self.image_uri = image_uri
+        if not self.image_uri:
+            self.image_uri = self.serving_image_uri(
+                region_name=self.sagemaker_session.boto_session.region_name,
+                instance_type=instance_type,
+            )
+        return super(SKLearnModel, self).register(
+            content_types,
+            response_types,
+            inference_instances,
+            transform_instances,
+            model_package_name,
+            model_package_group_name,
+            image_uri,
+            model_metrics,
+            metadata_properties,
+            marketplace_cert,
+            approval_status,
+            description,
+        )
+
+    def prepare_container_def(
+        self, instance_type=None, accelerator_type=None, serverless_inference_config=None
+    ):
+        """Container definition with framework configuration set in model environment variables.
 
         Args:
             instance_type (str): The EC2 instance type to deploy this Model to.
@@ -151,6 +216,9 @@ class SKLearnModel(FrameworkModel):
                 deploy to the instance for loading and making inferences to the
                 model. This parameter is unused because accelerator types
                 are not supported by SKLearnModel.
+            serverless_inference_config (sagemaker.serverless.ServerlessInferenceConfig):
+                Specifies configuration related to serverless endpoint. Instance type is
+                not provided in serverless inference. So this is used to find image URIs.
 
         Returns:
             dict[str, str]: A container definition object usable with the
@@ -168,7 +236,7 @@ class SKLearnModel(FrameworkModel):
         deploy_key_prefix = model_code_key_prefix(self.key_prefix, self.name, deploy_image)
         self._upload_code(key_prefix=deploy_key_prefix, repack=self.enable_network_isolation())
         deploy_env = dict(self.env)
-        deploy_env.update(self._framework_env_vars())
+        deploy_env.update(self._script_mode_env_vars())
 
         if self.model_server_workers:
             deploy_env[MODEL_SERVER_WORKERS_PARAM_NAME.upper()] = str(self.model_server_workers)
@@ -177,12 +245,16 @@ class SKLearnModel(FrameworkModel):
         )
         return sagemaker.container_def(deploy_image, model_data_uri, deploy_env)
 
-    def serving_image_uri(self, region_name, instance_type):
+    def serving_image_uri(self, region_name, instance_type, serverless_inference_config=None):
         """Create a URI for the serving image.
 
         Args:
             region_name (str): AWS region where the image is uploaded.
             instance_type (str): SageMaker instance type.
+            serverless_inference_config (sagemaker.serverless.ServerlessInferenceConfig):
+                Specifies configuration related to serverless endpoint. Instance type is
+                not provided in serverless inference. So this is used to determine device type.
+
 
         Returns:
             str: The appropriate image URI based on the given parameters.
@@ -194,4 +266,5 @@ class SKLearnModel(FrameworkModel):
             version=self.framework_version,
             py_version=self.py_version,
             instance_type=instance_type,
+            serverless_inference_config=serverless_inference_config,
         )

@@ -90,6 +90,7 @@ SageMaker Python SDK is tested on:
 - Python 3.6
 - Python 3.7
 - Python 3.8
+- Python 3.9
 
 AWS Permissions
 ~~~~~~~~~~~~~~~
@@ -103,7 +104,7 @@ However, if you are using an IAM role with a path in it, you should grant permis
 
 Licensing
 ~~~~~~~~~
-SageMaker Python SDK is licensed under the Apache 2.0 License. It is copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved. The license is available at:
+SageMaker Python SDK is licensed under the Apache 2.0 License. It is copyright Amazon.com, Inc. or its affiliates. All Rights Reserved. The license is available at:
 http://aws.amazon.com/apache2.0/
 
 Running tests
@@ -153,6 +154,18 @@ You can also run them in parallel:
 
     tox -- -n auto tests/integ
 
+
+Git Hooks
+~~~~~~~~~
+
+to enable all git hooks in the .githooks directory, run these commands in the repository directory:
+
+::
+
+    find .git/hooks -type l -exec rm {} \;
+    find .githooks -type f -exec ln -sf ../../{} .git/hooks/ \;
+
+To enable an individual git hook, simply move it from the .githooks/ directory to the .git/hooks/ directory.
 
 Building Sphinx docs
 ~~~~~~~~~~~~~~~~~~~~

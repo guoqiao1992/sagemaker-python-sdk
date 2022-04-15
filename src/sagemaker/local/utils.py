@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -15,6 +15,8 @@ from __future__ import absolute_import
 
 import os
 import shutil
+import subprocess
+import json
 
 from distutils.dir_util import copy_tree
 from six.moves.urllib.parse import urlparse
@@ -23,13 +25,14 @@ from sagemaker import s3
 
 
 def copy_directory_structure(destination_directory, relative_path):
-    """Create all the intermediate directories required for relative_path to
+    """Creates intermediate directory structure for relative_path.
+
+    Create all the intermediate directories required for relative_path to
     exist within destination_directory. This assumes that relative_path is a
     directory located within root_dir.
 
     Examples:
         destination_directory: /tmp/destination relative_path: test/unit/
-
         will create: /tmp/destination/test/unit
 
     Args:
@@ -62,7 +65,8 @@ def move_to_destination(source, destination, job_name, sagemaker_session):
     """
     parsed_uri = urlparse(destination)
     if parsed_uri.scheme == "file":
-        recursive_copy(source, parsed_uri.path)
+        dir_path = os.path.abspath(parsed_uri.netloc + parsed_uri.path)
+        recursive_copy(source, dir_path)
         final_uri = destination
     elif parsed_uri.scheme == "s3":
         bucket = parsed_uri.netloc
@@ -77,8 +81,9 @@ def move_to_destination(source, destination, job_name, sagemaker_session):
 
 
 def recursive_copy(source, destination):
-    """A wrapper around distutils.dir_util.copy_tree but won't throw any
-    exception when the source directory does not exist.
+    """A wrapper around distutils.dir_util.copy_tree.
+
+    This won't throw any exception when the source directory does not exist.
 
     Args:
         source (str): source path
@@ -86,3 +91,64 @@ def recursive_copy(source, destination):
     """
     if os.path.isdir(source):
         copy_tree(source, destination)
+
+
+def kill_child_processes(pid):
+    """Kill child processes
+
+    Kills all nested child process ids for a specific pid
+
+    Args:
+        pid (int): process id
+    """
+    child_pids = get_child_process_ids(pid)
+    for child_pid in child_pids:
+        os.kill(child_pid, 15)
+
+
+def get_child_process_ids(pid):
+    """Retrieve all child pids for a certain pid
+
+    Recursively scan each childs process tree and add it to the output
+
+    Args:
+        pid (int): process id
+
+    Returns:
+        (List[int]): Child process ids
+    """
+    cmd = f"pgrep -P {pid}".split()
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output, err = process.communicate()
+    if err:
+        return []
+    pids = [int(pid) for pid in output.decode("utf-8").split()]
+    if pids:
+        for child_pid in pids:
+            return pids + get_child_process_ids(child_pid)
+    else:
+        return []
+
+
+def get_docker_host():
+    """Discover remote docker host address (if applicable) or use "localhost"
+
+    Use "docker context inspect" to read current docker host endpoint url,
+    url must start with "tcp://"
+
+    Args:
+
+    Returns:
+        docker_host (str): Docker host DNS or IP address
+    """
+    cmd = "docker context inspect".split()
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output, err = process.communicate()
+    if err:
+        return "localhost"
+    docker_context_string = output.decode("utf-8")
+    docker_context_host_url = json.loads(docker_context_string)[0]["Endpoints"]["docker"]["Host"]
+    parsed_url = urlparse(docker_context_host_url)
+    if parsed_url.hostname and parsed_url.scheme == "tcp":
+        return parsed_url.hostname
+    return "localhost"

@@ -1,13 +1,10 @@
-###################################
-Distributed data parallel
-###################################
+########################################################
+The SageMaker Distributed Data Parallel Library Overview
+########################################################
 
-SageMaker distributed data parallel (SDP) extends SageMaker’s training
+SageMaker's distributed data parallel library extends SageMaker’s training
 capabilities on deep learning models with near-linear scaling efficiency,
 achieving fast time-to-train with minimal code changes.
-
-- SDP optimizes your training job for AWS network infrastructure and EC2 instance topology.
-- SDP takes advantage of gradient update to communicate between nodes with a custom AllReduce algorithm.
 
 When training a model on a large amount of data, machine learning practitioners
 will often turn to distributed training to reduce the time to train.
@@ -16,57 +13,17 @@ the business requirement is to finish training as quickly as possible or at
 least within a constrained time period.
 Then, distributed training is scaled to use a cluster of multiple nodes,
 meaning not just multiple GPUs in a computing instance, but multiple instances
-with multiple GPUs. As the cluster size increases, so does the significant drop
-in performance. This drop in performance is primarily caused the communications
-overhead between nodes in a cluster.
+with multiple GPUs. However, as the cluster size increases, it is possible to see a significant drop
+in performance due to communications overhead between nodes in a cluster.
 
-.. important::
-   SDP only supports training jobs using CUDA 11. When you define a PyTorch or TensorFlow
-   ``Estimator`` with ``dataparallel`` parameter ``enabled`` set to ``True``,
-   it uses CUDA 11. When you extend or customize your own training image
-   you must use a CUDA 11 base image. See
-   `SageMaker Python SDK's SDP APIs
-   <https://docs.aws.amazon.com/sagemaker/latest/dg/data-parallel-use-api.html#data-parallel-use-python-skd-api>`__
-   for more information.
+SageMaker's distributed data parallel library addresses communications overhead in two ways:
 
-.. rubric:: Customize your training script
+1. The library performs AllReduce, a key operation during distributed training that is responsible for a
+   large portion of communication overhead.
+2. The library performs optimized node-to-node communication by fully utilizing AWS’s network
+   infrastructure and Amazon EC2 instance topology.
 
-To customize your own training script, you will need the following:
-
-.. raw:: html
-
-   <div data-section-style="5" style="">
-
--  You must provide TensorFlow / PyTorch training scripts that are
-   adapted to use SDP.
--  Your input data must be in an S3 bucket or in FSx in the AWS region
-   that you will use to launch your training job. If you use the Jupyter
-   notebooks provided, create a SageMaker notebook instance in the same
-   region as the bucket that contains your input data. For more
-   information about storing your training data, refer to
-   the `SageMaker Python SDK data
-   inputs <https://sagemaker.readthedocs.io/en/stable/overview.html#use-file-systems-as-training-inputs>`__ documentation.
-
-.. raw:: html
-
-   </div>
-
-Use the API guides for each framework to see
-examples of training scripts that can be used to convert your training scripts.
-Then, use one of the example notebooks as your template to launch a training job.
-You’ll need to swap your training script with the one that came with the
-notebook and modify any input functions as necessary.
-Once you have launched a training job, you can monitor it using CloudWatch.
-
-Then you can see how to deploy your trained model to an endpoint by
-following one of the example notebooks for deploying a model. Finally,
-you can follow an example notebook to test inference on your deployed
-model.
-
-
-
-.. toctree::
-   :maxdepth: 2
-
-   smd_data_parallel_pytorch
-   smd_data_parallel_tensorflow
+To learn more about the core features of this library, see
+`Introduction to SageMaker's Distributed Data Parallel Library
+<https://docs.aws.amazon.com/sagemaker/latest/dg/data-parallel-intro.html>`_
+in the SageMaker Developer Guide.

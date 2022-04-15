@@ -1,4 +1,4 @@
-# Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -18,6 +18,8 @@ import pytest
 
 from sagemaker.pytorch.estimator import PyTorch
 from sagemaker.pytorch.model import PyTorchModel
+from sagemaker.pytorch.processing import PyTorchProcessor
+from sagemaker.serverless import ServerlessInferenceConfig
 from sagemaker.utils import sagemaker_timestamp
 from tests.integ import (
     test_region,
@@ -95,7 +97,36 @@ def fixture_training_job_with_latest_inference_version(
         return pytorch.latest_training_job.name
 
 
-@pytest.mark.canary_quick
+@pytest.mark.release
+def test_framework_processing_job_with_deps(
+    sagemaker_session,
+    pytorch_training_latest_version,
+    pytorch_training_latest_py_version,
+    cpu_instance_type,
+):
+    with timeout(minutes=TRAINING_DEFAULT_TIMEOUT_MINUTES):
+        code_path = os.path.join(DATA_DIR, "dummy_code_bundle_with_reqs")
+        entry_point = "main_script.py"
+
+        processor = PyTorchProcessor(
+            framework_version=pytorch_training_latest_version,
+            py_version=pytorch_training_latest_py_version,
+            role="SageMakerRole",
+            instance_count=1,
+            instance_type=cpu_instance_type,
+            sagemaker_session=sagemaker_session,
+            base_job_name="test-pytorch",
+        )
+
+        processor.run(
+            code=entry_point,
+            source_dir=code_path,
+            inputs=[],
+            wait=True,
+        )
+
+
+@pytest.mark.release
 def test_fit_deploy(
     pytorch_training_job_with_latest_infernce_version, sagemaker_session, cpu_instance_type
 ):
@@ -225,6 +256,39 @@ def test_deploy_model_with_accelerator(
             instance_type=cpu_instance_type,
             accelerator_type="ml.eia1.medium",
             endpoint_name=endpoint_name,
+        )
+
+        batch_size = 100
+        data = numpy.random.rand(batch_size, 1, 28, 28).astype(numpy.float32)
+        output = predictor.predict(data)
+
+        assert output.shape == (batch_size, 10)
+
+
+def test_deploy_model_with_serverless_inference_config(
+    pytorch_training_job,
+    sagemaker_session,
+    cpu_instance_type,
+    pytorch_inference_latest_version,
+    pytorch_inference_latest_py_version,
+):
+    endpoint_name = "test-pytorch-deploy-model-serverless-{}".format(sagemaker_timestamp())
+
+    with timeout_and_delete_endpoint_by_name(endpoint_name, sagemaker_session):
+        desc = sagemaker_session.sagemaker_client.describe_training_job(
+            TrainingJobName=pytorch_training_job
+        )
+        model_data = desc["ModelArtifacts"]["S3ModelArtifacts"]
+        model = PyTorchModel(
+            model_data,
+            "SageMakerRole",
+            entry_point=MNIST_SCRIPT,
+            framework_version=pytorch_inference_latest_version,
+            py_version=pytorch_inference_latest_py_version,
+            sagemaker_session=sagemaker_session,
+        )
+        predictor = model.deploy(
+            serverless_inference_config=ServerlessInferenceConfig(), endpoint_name=endpoint_name
         )
 
         batch_size = 100

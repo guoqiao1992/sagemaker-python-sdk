@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -13,12 +13,13 @@
 """The step definitions for workflow."""
 from __future__ import absolute_import
 
-from typing import List
+from typing import List, Union
 
 import attr
 
 from sagemaker.estimator import EstimatorBase
 from sagemaker.model import Model
+from sagemaker import PipelineModel
 from sagemaker.predictor import Predictor
 from sagemaker.transformer import Transformer
 from sagemaker.workflow.entities import RequestType
@@ -31,6 +32,7 @@ from sagemaker.workflow._utils import (
     _RegisterModelStep,
     _RepackModelStep,
 )
+from sagemaker.workflow.retry import RetryPolicy
 
 
 @attr.s
@@ -54,17 +56,26 @@ class RegisterModel(StepCollection):
     def __init__(
         self,
         name: str,
-        estimator: EstimatorBase,
-        model_data,
         content_types,
         response_types,
         inference_instances,
         transform_instances,
+        estimator: EstimatorBase = None,
+        model_data=None,
+        depends_on: Union[List[str], List[Step]] = None,
+        repack_model_step_retry_policies: List[RetryPolicy] = None,
+        register_model_step_retry_policies: List[RetryPolicy] = None,
         model_package_group_name=None,
         model_metrics=None,
         approval_status=None,
         image_uri=None,
         compile_model_family=None,
+        display_name=None,
+        description=None,
+        tags=None,
+        model: Union[Model, PipelineModel] = None,
+        drift_check_baselines=None,
+        customer_metadata_properties=None,
         **kwargs,
     ):
         """Construct steps `_RepackModelStep` and `_RegisterModelStep` based on the estimator.
@@ -79,7 +90,13 @@ class RegisterModel(StepCollection):
                 generate inferences in real-time (default: None).
             transform_instances (list): A list of the instance types on which a transformation
                 job can be run or on which an endpoint can be deployed (default: None).
-            model_package_group_name (str): The Model Package Group name, exclusive to
+            depends_on (List[str] or List[Step]): The list of step names or step instances
+                the first step in the collection depends on
+            repack_model_step_retry_policies (List[RetryPolicy]): The list of retry policies
+                for the repack model step
+            register_model_step_retry_policies (List[RetryPolicy]): The list of retry policies
+                for register model step
+            model_package_group_name (str): The Model Package Group name or Arn, exclusive to
                 `model_package_name`, using `model_package_group_name` makes the Model Package
                 versioned (default: None).
             model_metrics (ModelMetrics): ModelMetrics object (default: None).
@@ -89,23 +106,113 @@ class RegisterModel(StepCollection):
                 Estimator's training container image is used (default: None).
             compile_model_family (str): The instance family for the compiled model. If
                 specified, a compiled model is used (default: None).
+            description (str): Model Package description (default: None).
+            tags (List[dict[str, str]]): The list of tags to attach to the model package group. Note
+                that tags will only be applied to newly created model package groups; if the
+                name of an existing group is passed to "model_package_group_name",
+                tags will not be applied.
+            model (object or Model): A PipelineModel object that comprises a list of models
+                which gets executed as a serial inference pipeline or a Model object.
+            drift_check_baselines (DriftCheckBaselines): DriftCheckBaselines object (default: None).
+            customer_metadata_properties (dict[str, str]): A dictionary of key-value paired
+                metadata properties (default: None).
+
             **kwargs: additional arguments to `create_model`.
         """
         steps: List[Step] = []
+        repack_model = False
+        self.model_list = None
+        self.container_def_list = None
+        subnets = None
+        security_group_ids = None
+
+        if estimator is not None:
+            subnets = estimator.subnets
+            security_group_ids = estimator.security_group_ids
+        elif model is not None and model.vpc_config is not None:
+            subnets = model.vpc_config["Subnets"]
+            security_group_ids = model.vpc_config["SecurityGroupIds"]
+
         if "entry_point" in kwargs:
-            entry_point = kwargs["entry_point"]
-            source_dir = kwargs.get("source_dir")
-            dependencies = kwargs.get("dependencies")
+            repack_model = True
+            entry_point = kwargs.pop("entry_point", None)
+            source_dir = kwargs.pop("source_dir", None)
+            dependencies = kwargs.pop("dependencies", None)
+            kwargs = dict(**kwargs, output_kms_key=kwargs.pop("model_kms_key", None))
+
             repack_model_step = _RepackModelStep(
                 name=f"{name}RepackModel",
-                estimator=estimator,
+                depends_on=depends_on,
+                retry_policies=repack_model_step_retry_policies,
+                sagemaker_session=estimator.sagemaker_session,
+                role=estimator.role,
                 model_data=model_data,
                 entry_point=entry_point,
                 source_dir=source_dir,
                 dependencies=dependencies,
+                tags=tags,
+                subnets=subnets,
+                security_group_ids=security_group_ids,
+                description=description,
+                display_name=display_name,
+                **kwargs,
             )
             steps.append(repack_model_step)
             model_data = repack_model_step.properties.ModelArtifacts.S3ModelArtifacts
+
+            # remove kwargs consumed by model repacking step
+            kwargs.pop("output_kms_key", None)
+
+        elif model is not None:
+            if isinstance(model, PipelineModel):
+                self.model_list = model.models
+            elif isinstance(model, Model):
+                self.model_list = [model]
+
+            for model_entity in self.model_list:
+                if estimator is not None:
+                    sagemaker_session = estimator.sagemaker_session
+                    role = estimator.role
+                else:
+                    sagemaker_session = model_entity.sagemaker_session
+                    role = model_entity.role
+                if hasattr(model_entity, "entry_point") and model_entity.entry_point is not None:
+                    repack_model = True
+                    entry_point = model_entity.entry_point
+                    source_dir = model_entity.source_dir
+                    dependencies = model_entity.dependencies
+                    kwargs = dict(**kwargs, output_kms_key=model_entity.model_kms_key)
+                    model_name = model_entity.name or model_entity._framework_name
+
+                    repack_model_step = _RepackModelStep(
+                        name=f"{model_name}RepackModel",
+                        depends_on=depends_on,
+                        retry_policies=repack_model_step_retry_policies,
+                        sagemaker_session=sagemaker_session,
+                        role=role,
+                        model_data=model_entity.model_data,
+                        entry_point=entry_point,
+                        source_dir=source_dir,
+                        dependencies=dependencies,
+                        tags=tags,
+                        subnets=subnets,
+                        security_group_ids=security_group_ids,
+                        description=description,
+                        display_name=display_name,
+                        **kwargs,
+                    )
+                    steps.append(repack_model_step)
+                    model_entity.model_data = (
+                        repack_model_step.properties.ModelArtifacts.S3ModelArtifacts
+                    )
+
+                    # remove kwargs consumed by model repacking step
+                    kwargs.pop("output_kms_key", None)
+
+            if isinstance(model, PipelineModel):
+                self.container_def_list = model.pipeline_container_def(inference_instances[0])
+            elif isinstance(model, Model):
+                self.container_def_list = [model.prepare_container_def(inference_instances[0])]
 
         register_model_step = _RegisterModelStep(
             name=name,
@@ -117,11 +224,21 @@ class RegisterModel(StepCollection):
             transform_instances=transform_instances,
             model_package_group_name=model_package_group_name,
             model_metrics=model_metrics,
+            drift_check_baselines=drift_check_baselines,
             approval_status=approval_status,
             image_uri=image_uri,
             compile_model_family=compile_model_family,
+            description=description,
+            display_name=display_name,
+            tags=tags,
+            container_def_list=self.container_def_list,
+            retry_policies=register_model_step_retry_policies,
+            customer_metadata_properties=customer_metadata_properties,
             **kwargs,
         )
+        if not repack_model:
+            register_model_step.add_depends_on(depends_on)
+
         steps.append(register_model_step)
         self.steps = steps
 
@@ -138,6 +255,8 @@ class EstimatorTransformer(StepCollection):
         instance_count,
         instance_type,
         transform_inputs,
+        description: str = None,
+        display_name: str = None,
         # model arguments
         image_uri=None,
         predictor_cls=None,
@@ -152,6 +271,11 @@ class EstimatorTransformer(StepCollection):
         max_payload=None,
         tags=None,
         volume_kms_key=None,
+        depends_on: Union[List[str], List[Step]] = None,
+        # step retry policies
+        repack_model_step_retry_policies: List[RetryPolicy] = None,
+        model_step_retry_policies: List[RetryPolicy] = None,
+        transform_step_retry_policies: List[RetryPolicy] = None,
         **kwargs,
     ):
         """Construct steps required for a Transformer step collection:
@@ -188,19 +312,35 @@ class EstimatorTransformer(StepCollection):
                 it will be the format of the batch transform output.
             env (dict): The Environment variables to be set for use during the
                 transform job (default: None).
+            depends_on (List[str] or List[Step]): The list of step names or step instances
+                the first step in the collection depends on
+            repack_model_step_retry_policies (List[RetryPolicy]): The list of retry policies
+                for the repack model step
+            model_step_retry_policies (List[RetryPolicy]): The list of retry policies for
+                model step
+            transform_step_retry_policies (List[RetryPolicy]): The list of retry policies for
+                transform step
         """
         steps = []
         if "entry_point" in kwargs:
-            entry_point = kwargs["entry_point"]
-            source_dir = kwargs.get("source_dir")
-            dependencies = kwargs.get("dependencies")
+            entry_point = kwargs.get("entry_point", None)
+            source_dir = kwargs.get("source_dir", None)
+            dependencies = kwargs.get("dependencies", None)
             repack_model_step = _RepackModelStep(
                 name=f"{name}RepackModel",
-                estimator=estimator,
+                depends_on=depends_on,
+                retry_policies=repack_model_step_retry_policies,
+                sagemaker_session=estimator.sagemaker_session,
+                role=estimator.role,
                 model_data=model_data,
                 entry_point=entry_point,
                 source_dir=source_dir,
                 dependencies=dependencies,
+                tags=tags,
+                subnets=estimator.subnets,
+                security_group_ids=estimator.security_group_ids,
+                description=description,
+                display_name=display_name,
             )
             steps.append(repack_model_step)
             model_data = repack_model_step.properties.ModelArtifacts.S3ModelArtifacts
@@ -217,13 +357,23 @@ class EstimatorTransformer(StepCollection):
             vpc_config=None,
             sagemaker_session=estimator.sagemaker_session,
             role=estimator.role,
-            **kwargs,
+            env=kwargs.get("env", None),
+            name=kwargs.get("name", None),
+            enable_network_isolation=kwargs.get("enable_network_isolation", None),
+            model_kms_key=kwargs.get("model_kms_key", None),
+            image_config=kwargs.get("image_config", None),
         )
         model_step = CreateModelStep(
             name=f"{name}CreateModelStep",
             model=model,
             inputs=model_inputs,
+            description=description,
+            display_name=display_name,
+            retry_policies=model_step_retry_policies,
         )
+        if "entry_point" not in kwargs and depends_on:
+            # if the CreateModelStep is the first step in the collection
+            model_step.add_depends_on(depends_on)
         steps.append(model_step)
 
         transformer = Transformer(
@@ -247,6 +397,9 @@ class EstimatorTransformer(StepCollection):
             name=f"{name}TransformStep",
             transformer=transformer,
             inputs=transform_inputs,
+            description=description,
+            display_name=display_name,
+            retry_policies=transform_step_retry_policies,
         )
         steps.append(transform_step)
 

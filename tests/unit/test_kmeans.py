@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -93,7 +93,7 @@ def test_all_hyperparameters(sagemaker_session):
         epochs=10,
         center_factor=2,
         eval_metrics=["msd", "ssd"],
-        **ALL_REQ_ARGS
+        **ALL_REQ_ARGS,
     )
     assert kmeans.hyperparameters() == dict(
         k=str(ALL_REQ_ARGS["k"]),

@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -22,6 +22,7 @@ from mock import patch
 from packaging.version import Version
 
 
+from sagemaker.fw_utils import UploadedCode
 from sagemaker.xgboost import XGBoost, XGBoostModel, XGBoostPredictor
 
 
@@ -93,7 +94,7 @@ def _xgboost_estimator(
     instance_type=None,
     instance_count=1,
     base_job_name=None,
-    **kwargs
+    **kwargs,
 ):
 
     return XGBoost(
@@ -105,7 +106,7 @@ def _xgboost_estimator(
         instance_count=instance_count,
         base_job_name=base_job_name,
         py_version=PYTHON_VERSION,
-        **kwargs
+        **kwargs,
     )
 
 
@@ -142,9 +143,11 @@ def _create_train_job(version, instance_count=1, instance_type="ml.c4.4xlarge"):
             "sagemaker_region": '"us-west-2"',
         },
         "stop_condition": {"MaxRuntimeInSeconds": 24 * 60 * 60},
+        "retry_strategy": None,
         "metric_definitions": None,
         "tags": None,
         "vpc_config": None,
+        "environment": None,
         "experiment_config": None,
         "debugger_hook_config": {
             "CollectionConfigurations": [],
@@ -176,6 +179,26 @@ def test_create_model(sagemaker_session, xgboost_framework_version):
     default_image_uri = _get_full_image_uri(xgboost_framework_version)
     model_values = xgboost_model.prepare_container_def(CPU)
     assert model_values["Image"] == default_image_uri
+
+
+@patch("sagemaker.model.FrameworkModel._upload_code")
+def test_create_model_with_network_isolation(upload, sagemaker_session, xgboost_framework_version):
+    source_dir = "s3://mybucket/source"
+    repacked_model_data = "s3://mybucket/prefix/model.tar.gz"
+
+    xgboost_model = XGBoostModel(
+        model_data=source_dir,
+        role=ROLE,
+        sagemaker_session=sagemaker_session,
+        entry_point=SCRIPT_PATH,
+        framework_version=xgboost_framework_version,
+        enable_network_isolation=True,
+    )
+    xgboost_model.uploaded_code = UploadedCode(s3_prefix=repacked_model_data, script_name="script")
+    xgboost_model.repacked_model_data = repacked_model_data
+    model_values = xgboost_model.prepare_container_def(CPU)
+    assert model_values["Environment"]["SAGEMAKER_SUBMIT_DIRECTORY"] == "/opt/ml/model/code"
+    assert model_values["ModelDataUrl"] == repacked_model_data
 
 
 @patch("sagemaker.estimator.name_from_base")

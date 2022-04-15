@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -23,12 +23,16 @@ import shutil
 import tarfile
 import tempfile
 import time
+import json
+import abc
+import uuid
 from datetime import datetime
 
 import botocore
 from six.moves.urllib import parse
 
 from sagemaker import deprecations
+from sagemaker.session_settings import SessionSettings
 
 
 ECR_URI_PATTERN = r"^(\d+)(\.)dkr(\.)ecr(\.)(.+)(\.)(.*)(/)(.*:.*)$"
@@ -77,12 +81,9 @@ def name_from_base(base, max_length=63, short=False):
 
 
 def unique_name_from_base(base, max_length=63):
-    """
-    Args:
-        base:
-        max_length:
-    """
-    unique = "%04x" % random.randrange(16 ** 4)  # 4-digit hex
+    """Placeholder Docstring"""
+    random.seed(int(uuid.uuid4()))  # using uuid to randomize, otherwise system timestamp is used.
+    unique = "%04x" % random.randrange(16**4)  # 4-digit hex
     ts = str(int(time.time()))
     available_length = max_length - 2 - len(ts) - len(unique)
     trimmed = base[:available_length]
@@ -90,8 +91,7 @@ def unique_name_from_base(base, max_length=63):
 
 
 def base_name_from_image(image):
-    """Extract the base name of the image to use as the 'algorithm name' for the
-    job.
+    """Extract the base name of the image to use as the 'algorithm name' for the job.
 
     Args:
         image (str): Image name.
@@ -148,11 +148,7 @@ def build_dict(key, value):
 
 
 def get_config_value(key_path, config):
-    """
-    Args:
-        key_path:
-        config:
-    """
+    """Placeholder Docstring"""
     if config is None:
         return None
 
@@ -215,8 +211,7 @@ def secondary_training_status_changed(current_job_description, prev_job_descript
 
 
 def secondary_training_status_message(job_description, prev_description):
-    """Returns a string contains last modified time and the secondary training
-    job status message.
+    """Returns a string contains last modified time and the secondary training job status message.
 
     Args:
         job_description: Returned response from DescribeTrainingJob call
@@ -341,7 +336,7 @@ def create_tar_file(source_files, target=None):
     else:
         _, filename = tempfile.mkstemp()
 
-    with tarfile.open(filename, mode="w:gz") as t:
+    with tarfile.open(filename, mode="w:gz", dereference=True) as t:
         for sf in source_files:
             # Add all files from the directory into the root of the directory structure of the tar
             t.add(sf, arcname=os.path.basename(sf))
@@ -350,9 +345,9 @@ def create_tar_file(source_files, target=None):
 
 @contextlib.contextmanager
 def _tmpdir(suffix="", prefix="tmp"):
-    """Create a temporary directory with a context manager. The file is deleted
-    when the context exits.
+    """Create a temporary directory with a context manager.
 
+    The file is deleted when the context exits.
     The prefix, suffix, and dir arguments are the same as for mkstemp().
 
     Args:
@@ -378,8 +373,7 @@ def repack_model(
     sagemaker_session,
     kms_key=None,
 ):
-    """Unpack model tarball and creates a new model tarball with the provided
-    code script.
+    """Unpack model tarball and creates a new model tarball with the provided code script.
 
     This function does the following: - uncompresses model tarball from S3 or
     local system into a temp folder - replaces the inference code from the model
@@ -423,7 +417,12 @@ def repack_model(
         model_dir = _extract_model(model_uri, sagemaker_session, tmp)
 
         _create_or_update_code_dir(
-            model_dir, inference_script, source_directory, dependencies, sagemaker_session, tmp
+            model_dir,
+            inference_script,
+            source_directory,
+            dependencies,
+            sagemaker_session,
+            tmp,
         )
 
         tmp_model_path = os.path.join(tmp, "temp-model.tar.gz")
@@ -434,19 +433,21 @@ def repack_model(
 
 
 def _save_model(repacked_model_uri, tmp_model_path, sagemaker_session, kms_key):
-    """
-    Args:
-        repacked_model_uri:
-        tmp_model_path:
-        sagemaker_session:
-    """
+    """Placeholder docstring"""
     if repacked_model_uri.lower().startswith("s3://"):
         url = parse.urlparse(repacked_model_uri)
         bucket, key = url.netloc, url.path.lstrip("/")
         new_key = key.replace(os.path.basename(key), os.path.basename(repacked_model_uri))
 
+        settings = (
+            sagemaker_session.settings if sagemaker_session is not None else SessionSettings()
+        )
+        encrypt_artifact = settings.encrypt_repacked_artifacts
+
         if kms_key:
             extra_args = {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": kms_key}
+        elif encrypt_artifact:
+            extra_args = {"ServerSideEncryption": "aws:kms"}
         else:
             extra_args = None
         sagemaker_session.boto_session.resource(
@@ -459,15 +460,7 @@ def _save_model(repacked_model_uri, tmp_model_path, sagemaker_session, kms_key):
 def _create_or_update_code_dir(
     model_dir, inference_script, source_directory, dependencies, sagemaker_session, tmp
 ):
-    """
-    Args:
-        model_dir:
-        inference_script:
-        source_directory:
-        dependencies:
-        sagemaker_session:
-        tmp:
-    """
+    """Placeholder docstring"""
     code_dir = os.path.join(model_dir, "code")
     if source_directory and source_directory.lower().startswith("s3://"):
         local_code_path = os.path.join(tmp, "local_code.tar.gz")
@@ -502,12 +495,7 @@ def _create_or_update_code_dir(
 
 
 def _extract_model(model_uri, sagemaker_session, tmp):
-    """
-    Args:
-        model_uri:
-        sagemaker_session:
-        tmp:
-    """
+    """Placeholder docstring"""
     tmp_model_dir = os.path.join(tmp, "model")
     os.mkdir(tmp_model_dir)
     if model_uri.lower().startswith("s3://"):
@@ -521,12 +509,7 @@ def _extract_model(model_uri, sagemaker_session, tmp):
 
 
 def download_file_from_url(url, dst, sagemaker_session):
-    """
-    Args:
-        url:
-        dst:
-        sagemaker_session:
-    """
+    """Placeholder docstring"""
     url = parse.urlparse(url)
     bucket, key = url.netloc, url.path.lstrip("/")
 
@@ -570,7 +553,11 @@ def sts_regional_endpoint(region):
     return "https://{}".format(endpoint_data["hostname"])
 
 
-def retries(max_retry_count, exception_message_prefix, seconds_to_sleep=DEFAULT_SLEEP_TIME_SECONDS):
+def retries(
+    max_retry_count,
+    exception_message_prefix,
+    seconds_to_sleep=DEFAULT_SLEEP_TIME_SECONDS,
+):
     """Retries until max retry count is reached.
 
     Args:
@@ -604,8 +591,7 @@ def _botocore_resolver():
 
 
 def _aws_partition(region):
-    """
-    Given a region name (ex: "cn-north-1"), return the corresponding aws partition ("aws-cn").
+    """Given a region name (ex: "cn-north-1"), return the corresponding aws partition ("aws-cn").
 
     Args:
         region (str): The region name for which to return the corresponding partition.
@@ -619,10 +605,10 @@ def _aws_partition(region):
 
 
 class DeferredError(object):
-    """Stores an exception and raises it at a later time if this object is
-    accessed in any way. Useful to allow soft-dependencies on imports, so that
-    the ImportError can be raised again later if code actually relies on the
-    missing library.
+    """Stores an exception and raises it at a later time if this object is accessed in any way.
+
+    Useful to allow soft-dependencies on imports, so that the ImportError can be raised again
+    later if code actually relies on the missing library.
 
     Example::
 
@@ -634,16 +620,13 @@ class DeferredError(object):
     """
 
     def __init__(self, exception):
-        """
-        Args:
-            exception:
-        """
+        """Placeholder docstring"""
         self.exc = exception
 
     def __getattr__(self, name):
-        """Called by Python interpreter before using any method or property on
-        the object. So this will short-circuit essentially any access to this
-        object.
+        """Called by Python interpreter before using any method or property on the object.
+
+        So this will short-circuit essentially any access to this object.
 
         Args:
             name:
@@ -652,8 +635,7 @@ class DeferredError(object):
 
 
 def _module_import_error(py_module, feature, extras):
-    """Return error message for module import errors, provide
-    installation details.
+    """Return error message for module import errors, provide installation details.
 
     Args:
         py_module (str): Module that failed to be imported
@@ -669,6 +651,74 @@ def _module_import_error(py_module, feature, extras):
         "to install all required dependencies."
     )
     return error_msg.format(py_module, feature, extras)
+
+
+class DataConfig(abc.ABC):
+    """Abstract base class for accessing data config hosted in AWS resources.
+
+    Provides a skeleton for customization by overriding of method fetch_data_config.
+    """
+
+    @abc.abstractmethod
+    def fetch_data_config(self):
+        """Abstract method implementing retrieval of data config from a pre-configured data source.
+
+        Returns:
+            object: The data configuration object.
+        """
+
+
+class S3DataConfig(DataConfig):
+    """This class extends the DataConfig class to fetch a data config file hosted on S3"""
+
+    def __init__(
+        self,
+        sagemaker_session,
+        bucket_name,
+        prefix,
+    ):
+        """Initialize a ``S3DataConfig`` instance.
+
+        Args:
+            sagemaker_session (Session): SageMaker session instance to use for boto configuration.
+            bucket_name (str): Required. Bucket name from which data config needs to be fetched.
+            prefix (str): Required. The object prefix for the hosted data config.
+
+        """
+        if bucket_name is None or prefix is None:
+            raise ValueError(
+                "Bucket Name and S3 file Prefix are required arguments and must be provided."
+            )
+
+        super(S3DataConfig, self).__init__()
+
+        self.bucket_name = bucket_name
+        self.prefix = prefix
+        self.sagemaker_session = sagemaker_session
+
+    def fetch_data_config(self):
+        """Fetches data configuration from a S3 bucket.
+
+        Returns:
+            object: The JSON object containing data configuration.
+        """
+
+        json_string = self.sagemaker_session.read_s3_file(self.bucket_name, self.prefix)
+        return json.loads(json_string)
+
+    def get_data_bucket(self, region_requested=None):
+        """Provides the bucket containing the data for specified region.
+
+        Args:
+            region_requested (str): The region for which the data is beig requested.
+
+        Returns:
+            str: Name of the S3 bucket containing datasets in the requested region.
+        """
+
+        config = self.fetch_data_config()
+        region = region_requested if region_requested else self.sagemaker_session.boto_region_name
+        return config[region] if region in config.keys() else config["default"]
 
 
 get_ecr_image_uri_prefix = deprecations.removed_function("get_ecr_image_uri_prefix")

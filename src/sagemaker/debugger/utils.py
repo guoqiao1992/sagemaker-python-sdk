@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -36,8 +36,9 @@ def _convert_key_and_value(key, value):
 
 
 def convert_json_config_to_string(config):
-    """Helper function to convert the dictionary config to a string. Calling eval on this string
-    should result in the original dictionary.
+    """Helper function to convert the dictionary config to a string.
+
+    Calling eval on this string should result in the original dictionary.
 
     Args:
         config (dict): The config to be converted to a string.

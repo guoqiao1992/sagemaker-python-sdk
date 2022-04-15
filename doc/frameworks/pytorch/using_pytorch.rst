@@ -31,7 +31,7 @@ To train a PyTorch model by using the SageMaker Python SDK:
 Prepare a PyTorch Training Script
 =================================
 
-Your PyTorch training script must be a Python 2.7 or 3.5 compatible source file.
+Your PyTorch training script must be a Python 3.6 compatible source file.
 
 Prepare your script in a separate source file than the notebook, terminal session, or source file you're
 using to submit the script to SageMaker via a ``PyTorch`` Estimator. This will be discussed in further detail below.
@@ -80,7 +80,7 @@ with the following:
 
         # ... load from args.train and args.test, train a model, write model to args.model_dir.
 
-Because the SageMaker imports your training script, you should put your training code in a main guard
+Because SageMaker imports your training script, you should put your training code in a main guard
 (``if __name__=='__main__':``) if you are using the same script to host your model, so that SageMaker does not
 inadvertently run your training code at the wrong point in execution.
 
@@ -154,7 +154,7 @@ directories ('train' and 'test').
     pytorch_estimator = PyTorch('pytorch-train.py',
                                 instance_type='ml.p3.2xlarge',
                                 instance_count=1,
-                                framework_version='1.5.0',
+                                framework_version='1.8.0',
                                 py_version='py3',
                                 hyperparameters = {'epochs': 20, 'batch-size': 64, 'learning-rate': 0.1})
     pytorch_estimator.fit({'train': 's3://my-data-bucket/path/to/my/training/data',
@@ -177,7 +177,7 @@ fit Required Arguments
    case, the S3 objects rooted at the ``my-training-data`` prefix will
    be available in the default ``train`` channel. A dict from
    string channel names to S3 URIs. In this case, the objects rooted at
-   each S3 prefix will available as files in each channel directory.
+   each S3 prefix will be available as files in each channel directory.
 
 For example:
 
@@ -248,7 +248,7 @@ operation.
     pytorch_estimator = PyTorch(entry_point='train_and_deploy.py',
                                 instance_type='ml.p3.2xlarge',
                                 instance_count=1,
-                                framework_version='1.5.0',
+                                framework_version='1.8.0',
                                 py_version='py3')
     pytorch_estimator.fit('s3://my_bucket/my_training_data/')
 
@@ -365,15 +365,33 @@ It loads the model parameters from a ``model.pth`` file in the SageMaker model d
             model.load_state_dict(torch.load(f))
         return model
 
-However, if you are using PyTorch Elastic Inference, you do not have to provide a ``model_fn`` since the PyTorch serving
+However, if you are using PyTorch Elastic Inference 1.3.1, you do not have to provide a ``model_fn`` since the PyTorch serving
 container has a default one for you. But please note that if you are utilizing the default ``model_fn``, please save
 your ScriptModule as ``model.pt``. If you are implementing your own ``model_fn``, please use TorchScript and ``torch.jit.save``
 to save your ScriptModule, then load it in your ``model_fn`` with ``torch.jit.load(..., map_location=torch.device('cpu'))``.
 
+If you are using PyTorch Elastic Inference 1.5.1, you should provide ``model_fn`` like below in your script to use new api ``attach_eia``. Reference can be find in `Elastic Inference documentation <https://docs.aws.amazon.com/elastic-inference/latest/developerguide/ei-pytorch-using.html>`_.
+
+
+.. code:: python
+
+    import torch
+
+
+    def model_fn(model_dir):
+        model = torch.jit.load('model.pth', map_location=torch.device('cpu'))
+        if torch.__version__ == '1.5.1':
+            import torcheia
+            model = model.eval()
+            # attach_eia() is introduced in PyTorch Elastic Inference 1.5.1,
+            model = torcheia.jit.attach_eia(model, 0)
+        return model
+
+
 The client-side Elastic Inference framework is CPU-only, even though inference still happens in a CUDA context on the server. Thus, the default ``model_fn`` for Elastic Inference loads the model to CPU. Tracing models may lead to tensor creation on a specific device, which may cause device-related errors when loading a model onto a different device. Providing an explicit ``map_location=torch.device('cpu')`` argument forces all tensors to CPU.
 
 For more information on the default inference handler functions, please refer to:
-`SageMaker PyTorch Default Inference Handler <https://github.com/aws/sagemaker-pytorch-serving-container/blob/master/src/sagemaker_pytorch_serving_container/default_inference_handler.py>`_.
+`SageMaker PyTorch Default Inference Handler <https://github.com/aws/sagemaker-pytorch-inference-toolkit/blob/master/src/sagemaker_pytorch_serving_container/default_pytorch_inference_handler.py>`_.
 
 Serve a PyTorch Model
 ---------------------
@@ -416,6 +434,7 @@ The SageMaker PyTorch model server provides default implementations of these fun
 You can provide your own implementations for these functions in your hosting script.
 If you omit any definition then the SageMaker PyTorch model server will use its default implementation for that
 function.
+If you use PyTorch Elastic Inference 1.5.1, remember to implement ``predict_fn`` yourself.
 
 The ``Predictor`` used by PyTorch in the SageMaker Python SDK serializes NumPy arrays to the `NPY <https://docs.scipy.org/doc/numpy/neps/npy-format.html>`_ format
 by default, with Content-Type ``application/x-npy``. The SageMaker PyTorch model server can deserialize NPY-formatted
@@ -546,6 +565,25 @@ block, for example:
         model.eval()
         with torch.jit.optimized_execution(True, {"target_device": "eia:0"}):
             output = model(input_data)
+
+If you use PyTorch Elastic Inference 1.5.1, please implement your own ``predict_fn`` like below.
+
+.. code:: python
+
+    import numpy as np
+    import torch
+
+
+    def predict_fn(input_data, model):
+        device = torch.device("cpu")
+        input_data = data.to(device)
+        # make sure torcheia is imported so that Elastic Inference api call will be invoked
+        import torcheia
+        # we need to set the profiling executor for EIA
+        torch._C._jit_set_profiling_executor(False)
+        with torch.jit.optimized_execution(True):
+            output = model.forward(input_data)
+
 
 Process Model Output
 ^^^^^^^^^^^^^^^^^^^^

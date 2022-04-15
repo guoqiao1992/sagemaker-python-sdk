@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -17,10 +17,15 @@ import json
 import os
 import subprocess
 from time import sleep
+from sagemaker.fw_utils import UploadedCode
+
 
 import pytest
 from botocore.exceptions import ClientError
 from mock import ANY, MagicMock, Mock, patch
+from sagemaker.huggingface.estimator import HuggingFace
+from sagemaker.jumpstart.constants import JUMPSTART_BUCKET_NAME_SET, JUMPSTART_RESOURCE_BASE_NAME
+from sagemaker.jumpstart.enums import JumpStartTag
 
 import sagemaker.local
 from sagemaker import TrainingInput, utils, vpc_utils
@@ -34,11 +39,19 @@ from sagemaker.debugger import (
     ProfilerRule,
     Rule,
 )
+from sagemaker.async_inference import AsyncInferenceConfig
 from sagemaker.estimator import Estimator, EstimatorBase, Framework, _TrainingJob
+from sagemaker.fw_utils import PROFILER_UNSUPPORTED_REGIONS
 from sagemaker.inputs import ShuffleConfig
 from sagemaker.model import FrameworkModel
+from sagemaker.mxnet.estimator import MXNet
 from sagemaker.predictor import Predictor
+from sagemaker.pytorch.estimator import PyTorch
+from sagemaker.sklearn.estimator import SKLearn
+from sagemaker.tensorflow.estimator import TensorFlow
+from sagemaker.predictor_async import AsyncPredictor
 from sagemaker.transformer import Transformer
+from sagemaker.xgboost.estimator import XGBoost
 
 MODEL_DATA = "s3://bucket/model.tar.gz"
 MODEL_IMAGE = "mi"
@@ -70,6 +83,7 @@ CODECOMMIT_REPO = "https://git-codecommit.us-west-2.amazonaws.com/v1/repos/test-
 CODECOMMIT_REPO_SSH = "ssh://git-codecommit.us-west-2.amazonaws.com/v1/repos/test-repo/"
 CODECOMMIT_BRANCH = "master"
 REPO_DIR = "/tmp/repo_dir"
+ENV_INPUT = {"env_key1": "env_val1", "env_key2": "env_val2", "env_key3": "env_val3"}
 
 DESCRIBE_TRAINING_JOB_RESULT = {"ModelArtifacts": {"S3ModelArtifacts": MODEL_DATA}}
 
@@ -115,6 +129,14 @@ ENDPOINT_CONFIG_DESC = {"ProductionVariants": [{"ModelName": "model-1"}, {"Model
 
 LIST_TAGS_RESULT = {"Tags": [{"Key": "TagtestKey", "Value": "TagtestValue"}]}
 
+DISTRIBUTION_PS_ENABLED = {"parameter_server": {"enabled": True}}
+DISTRIBUTION_MPI_ENABLED = {
+    "mpi": {"enabled": True, "custom_mpi_options": "options", "processes_per_host": 2}
+}
+DISTRIBUTION_SM_DDP_ENABLED = {
+    "smdistributed": {"dataparallel": {"enabled": True, "custom_mpi_options": "options"}}
+}
+
 
 class DummyFramework(Framework):
     _framework_name = "dummy"
@@ -130,7 +152,7 @@ class DummyFramework(Framework):
         vpc_config_override=vpc_utils.VPC_CONFIG_DEFAULT,
         enable_network_isolation=None,
         model_dir=None,
-        **kwargs
+        **kwargs,
     ):
         if enable_network_isolation is None:
             enable_network_isolation = self.enable_network_isolation()
@@ -141,7 +163,7 @@ class DummyFramework(Framework):
             entry_point=entry_point,
             enable_network_isolation=enable_network_isolation,
             role=role,
-            **kwargs
+            **kwargs,
         )
 
     @classmethod
@@ -161,13 +183,15 @@ class DummyFrameworkModel(FrameworkModel):
             role,
             entry_point or ENTRY_POINT,
             sagemaker_session=sagemaker_session,
-            **kwargs
+            **kwargs,
         )
 
     def create_predictor(self, endpoint_name):
         return None
 
-    def prepare_container_def(self, instance_type, accelerator_type=None):
+    def prepare_container_def(
+        self, instance_type, accelerator_type=None, serverless_inference_config=None
+    ):
         return MODEL_CONTAINER_DEF
 
 
@@ -234,6 +258,8 @@ def test_framework_all_init_args(sagemaker_session):
         checkpoint_local_path="file://local/checkpoint",
         enable_sagemaker_metrics=True,
         enable_network_isolation=True,
+        environment=ENV_INPUT,
+        max_retry_attempts=2,
     )
     _TrainingJob.start_new(f, "s3://mydata", None)
     sagemaker_session.train.assert_called_once()
@@ -258,6 +284,7 @@ def test_framework_all_init_args(sagemaker_session):
         "output_config": {"KmsKeyId": "outputkms", "S3OutputPath": "outputpath"},
         "vpc_config": {"Subnets": ["123", "456"], "SecurityGroupIds": ["789", "012"]},
         "stop_condition": {"MaxRuntimeInSeconds": 456},
+        "retry_strategy": {"MaximumRetryAttempts": 2},
         "role": sagemaker_session.expand_role(),
         "job_name": None,
         "resource_config": {
@@ -268,6 +295,7 @@ def test_framework_all_init_args(sagemaker_session):
         },
         "metric_definitions": [{"Name": "validation-rmse", "Regex": "validation-rmse=(\\d+)"}],
         "encrypt_inter_container_traffic": True,
+        "environment": {"env_key1": "env_val1", "env_key2": "env_val2", "env_key3": "env_val3"},
         "experiment_config": None,
         "checkpoint_s3_uri": "s3://bucket/checkpoint",
         "checkpoint_local_path": "file://local/checkpoint",
@@ -379,6 +407,58 @@ def test_framework_with_only_debugger_rule(sagemaker_session):
     assert args["debugger_rule_configs"][0]["RuleParameters"] == {
         "rule_to_invoke": "StalledTrainingRule"
     }
+    assert args["debugger_hook_config"] == {
+        "S3OutputPath": "s3://{}/".format(BUCKET_NAME),
+        "CollectionConfigurations": [],
+    }
+
+
+def test_framework_with_debugger_rule_and_single_action(sagemaker_session):
+    stop_training_action = rule_configs.StopTraining()
+    f = DummyFramework(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        sagemaker_session=sagemaker_session,
+        instance_count=INSTANCE_COUNT,
+        instance_type=INSTANCE_TYPE,
+        rules=[Rule.sagemaker(rule_configs.stalled_training_rule(), actions=stop_training_action)],
+    )
+    f.fit("s3://mydata")
+    sagemaker_session.train.assert_called_once()
+    _, args = sagemaker_session.train.call_args
+    assert args["debugger_rule_configs"][0]["RuleParameters"] == {
+        "rule_to_invoke": "StalledTrainingRule",
+        "action_json": stop_training_action.serialize(),
+    }
+    assert stop_training_action.action_parameters["training_job_prefix"] == f._current_job_name
+    assert args["debugger_hook_config"] == {
+        "S3OutputPath": "s3://{}/".format(BUCKET_NAME),
+        "CollectionConfigurations": [],
+    }
+
+
+def test_framework_with_debugger_rule_and_multiple_actions(sagemaker_session):
+    action_list = rule_configs.ActionList(
+        rule_configs.StopTraining(),
+        rule_configs.Email("abc@abc.com"),
+        rule_configs.SMS("+1234567890"),
+    )
+    f = DummyFramework(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        sagemaker_session=sagemaker_session,
+        instance_count=INSTANCE_COUNT,
+        instance_type=INSTANCE_TYPE,
+        rules=[Rule.sagemaker(rule_configs.stalled_training_rule(), actions=action_list)],
+    )
+    f.fit("s3://mydata")
+    sagemaker_session.train.assert_called_once()
+    _, args = sagemaker_session.train.call_args
+    assert args["debugger_rule_configs"][0]["RuleParameters"] == {
+        "rule_to_invoke": "StalledTrainingRule",
+        "action_json": action_list.serialize(),
+    }
+    assert action_list.actions[0].action_parameters["training_job_prefix"] == f._current_job_name
     assert args["debugger_hook_config"] == {
         "S3OutputPath": "s3://{}/".format(BUCKET_NAME),
         "CollectionConfigurations": [],
@@ -572,6 +652,32 @@ def test_framework_with_profiler_config_without_s3_output_path(time, sagemaker_s
             "RuleParameters": {"rule_to_invoke": "ProfilerReport"},
         }
     ]
+
+
+@pytest.mark.parametrize("region", PROFILER_UNSUPPORTED_REGIONS)
+def test_framework_with_no_default_profiler_in_unsupported_region(region):
+    boto_mock = Mock(name="boto_session", region_name=region)
+    sms = MagicMock(
+        name="sagemaker_session",
+        boto_session=boto_mock,
+        boto_region_name=region,
+        config=None,
+        local_mode=False,
+        s3_client=None,
+        s3_resource=None,
+    )
+    f = DummyFramework(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        sagemaker_session=sms,
+        instance_count=INSTANCE_COUNT,
+        instance_type=INSTANCE_TYPE,
+    )
+    f.fit("s3://mydata")
+    sms.train.assert_called_once()
+    _, args = sms.train.call_args
+    assert args.get("profiler_config") is None
+    assert args.get("profiler_rule_configs") is None
 
 
 def test_framework_with_profiler_config_and_profiler_disabled(sagemaker_session):
@@ -1000,7 +1106,9 @@ def test_framework_with_spot_and_checkpoints(sagemaker_session):
         "use_spot_instances": True,
         "checkpoint_s3_uri": "s3://mybucket/checkpoints/",
         "checkpoint_local_path": "/tmp/checkpoints",
+        "environment": None,
         "experiment_config": None,
+        "retry_strategy": None,
     }
 
 
@@ -1349,7 +1457,7 @@ def test_attach_no_logs(sagemaker_session, training_job_description):
 def test_logs(sagemaker_session, training_job_description):
     estimator = Estimator.attach(training_job_name="job", sagemaker_session=sagemaker_session)
     estimator.logs()
-    sagemaker_session.logs_for_job.assert_called_with(estimator.latest_training_job, wait=True)
+    sagemaker_session.logs_for_job.assert_called_with(estimator.latest_training_job.name, wait=True)
 
 
 def test_attach_without_hyperparameters(sagemaker_session, training_job_description):
@@ -2229,8 +2337,8 @@ def test_different_code_location_kms_key(utils, sagemaker_session):
     obj = sagemaker_session.boto_session.resource("s3").Object
 
     obj.assert_called_with("another-location", "%s/source/sourcedir.tar.gz" % fw._current_job_name)
-
-    obj().upload_file.assert_called_with(utils.create_tar_file(), ExtraArgs=None)
+    extra_args = {"ServerSideEncryption": "aws:kms"}
+    obj().upload_file.assert_called_with(utils.create_tar_file(), ExtraArgs=extra_args)
 
 
 @patch("sagemaker.utils")
@@ -2301,9 +2409,11 @@ NO_INPUT_TRAIN_CALL = {
         "VolumeSizeInGB": 30,
     },
     "stop_condition": {"MaxRuntimeInSeconds": 86400},
+    "retry_strategy": None,
     "tags": None,
     "vpc_config": None,
     "metric_definitions": None,
+    "environment": None,
     "experiment_config": None,
 }
 
@@ -2378,6 +2488,7 @@ def test_fit_deploy_tags_in_estimator(name_from_base, sagemaker_session):
         kms_key=None,
         wait=True,
         data_capture_config_dict=None,
+        async_inference_config_dict=None,
     )
 
     sagemaker_session.create_model.assert_called_with(
@@ -2423,6 +2534,7 @@ def test_fit_deploy_tags(name_from_base, sagemaker_session):
         kms_key=None,
         wait=True,
         data_capture_config_dict=None,
+        async_inference_config_dict=None,
     )
 
     sagemaker_session.create_model.assert_called_with(
@@ -2593,6 +2705,42 @@ def test_generic_to_fit_with_sagemaker_metrics_missing(sagemaker_session):
     assert "enable_sagemaker_metrics" not in args
 
 
+def test_add_environment_variables_to_train_args(sagemaker_session):
+    e = Estimator(
+        IMAGE_URI,
+        ROLE,
+        INSTANCE_COUNT,
+        INSTANCE_TYPE,
+        output_path=OUTPUT_PATH,
+        sagemaker_session=sagemaker_session,
+        environment=ENV_INPUT,
+    )
+
+    e.fit()
+
+    sagemaker_session.train.assert_called_once()
+    args = sagemaker_session.train.call_args[1]
+    assert args["environment"] == ENV_INPUT
+
+
+def test_add_retry_strategy_to_train_args(sagemaker_session):
+    e = Estimator(
+        IMAGE_URI,
+        ROLE,
+        INSTANCE_COUNT,
+        INSTANCE_TYPE,
+        output_path=OUTPUT_PATH,
+        sagemaker_session=sagemaker_session,
+        max_retry_attempts=2,
+    )
+
+    e.fit()
+
+    sagemaker_session.train.assert_called_once()
+    args = sagemaker_session.train.call_args[1]
+    assert args["retry_strategy"] == {"MaximumRetryAttempts": 2}
+
+
 def test_generic_to_fit_with_sagemaker_metrics_enabled(sagemaker_session):
     e = Estimator(
         IMAGE_URI,
@@ -2669,6 +2817,63 @@ def test_generic_to_deploy(time, sagemaker_session):
     assert predictor.sagemaker_session == sagemaker_session
 
 
+def test_generic_to_deploy_async(sagemaker_session):
+    e = Estimator(
+        IMAGE_URI,
+        ROLE,
+        INSTANCE_COUNT,
+        INSTANCE_TYPE,
+        output_path=OUTPUT_PATH,
+        sagemaker_session=sagemaker_session,
+    )
+
+    e.fit()
+    s3_output_path = "s3://some-s3-path"
+
+    predictor_async = e.deploy(
+        INSTANCE_COUNT,
+        INSTANCE_TYPE,
+        async_inference_config=AsyncInferenceConfig(output_path=s3_output_path),
+    )
+
+    sagemaker_session.create_model.assert_called_once()
+    _, kwargs = sagemaker_session.create_model.call_args
+    assert isinstance(predictor_async, AsyncPredictor)
+    assert predictor_async.endpoint_name.startswith(IMAGE_URI)
+    assert predictor_async.sagemaker_session == sagemaker_session
+
+
+def test_generic_to_deploy_bad_arguments_combination(sagemaker_session):
+    e = Estimator(
+        IMAGE_URI,
+        ROLE,
+        INSTANCE_COUNT,
+        INSTANCE_TYPE,
+        output_path=OUTPUT_PATH,
+        sagemaker_session=sagemaker_session,
+    )
+
+    e.fit()
+
+    bad_args = (
+        {"instance_type": INSTANCE_TYPE},
+        {"initial_instance_count": INSTANCE_COUNT},
+        {"instance_type": None, "initial_instance_count": None},
+    )
+    for args in bad_args:
+        with pytest.raises(
+            ValueError,
+            match="Must specify instance type and instance count unless using serverless inference",
+        ):
+            e.deploy(args)
+
+    with pytest.raises(
+        ValueError,
+        match="serverless_inference_config needs to be a ServerlessInferenceConfig object",
+    ):
+        e.deploy(serverless_inference_config={})
+
+
 def test_generic_to_deploy_network_isolation(sagemaker_session):
     e = Estimator(
         IMAGE_URI,
@@ -2718,6 +2923,8 @@ def test_generic_to_deploy_kms(create_model, sagemaker_session):
         wait=True,
         kms_key=kms_key,
         data_capture_config=None,
+        async_inference_config=None,
+        serverless_inference_config=None,
     )
 
 
@@ -3049,6 +3256,25 @@ def test_prepare_init_params_from_job_description_with_spot_training():
     assert init_params["max_wait"] == 87000
 
 
+def test_prepare_init_params_from_job_description_with_retry_strategy():
+    job_description = RETURNED_JOB_DESCRIPTION.copy()
+    job_description["RetryStrategy"] = {"MaximumRetryAttempts": 2}
+    job_description["StoppingCondition"] = {
+        "MaxRuntimeInSeconds": 86400,
+        "MaxWaitTimeInSeconds": 87000,
+    }
+
+    init_params = EstimatorBase._prepare_init_params_from_job_description(
+        job_details=job_description
+    )
+
+    assert init_params["role"] == "arn:aws:iam::366:role/SageMakerRole"
+    assert init_params["instance_count"] == 1
+    assert init_params["max_run"] == 86400
+    assert init_params["max_wait"] == 87000
+    assert init_params["max_retry_attempts"] == 2
+
+
 def test_prepare_init_params_from_job_description_with_invalid_training_job():
 
     invalid_job_description = RETURNED_JOB_DESCRIPTION.copy()
@@ -3157,3 +3383,612 @@ def test_estimator_local_mode_ok(sagemaker_local_session):
         sagemaker_session=sagemaker_local_session,
         base_job_name="base_job_name",
     )
+
+
+def test_framework_distribution_configuration(sagemaker_session):
+    framework = DummyFramework(
+        entry_point="script",
+        role=ROLE,
+        sagemaker_session=sagemaker_session,
+        instance_count=INSTANCE_COUNT,
+        instance_type=INSTANCE_TYPE,
+    )
+    actual_ps = framework._distribution_configuration(distribution=DISTRIBUTION_PS_ENABLED)
+    expected_ps = {"sagemaker_parameter_server_enabled": True}
+    assert actual_ps == expected_ps
+
+    actual_mpi = framework._distribution_configuration(distribution=DISTRIBUTION_MPI_ENABLED)
+    expected_mpi = {
+        "sagemaker_mpi_enabled": True,
+        "sagemaker_mpi_num_of_processes_per_host": 2,
+        "sagemaker_mpi_custom_mpi_options": "options",
+    }
+    assert actual_mpi == expected_mpi
+
+    actual_ddp = framework._distribution_configuration(distribution=DISTRIBUTION_SM_DDP_ENABLED)
+    expected_ddp = {
+        "sagemaker_distributed_dataparallel_enabled": True,
+        "sagemaker_distributed_dataparallel_custom_mpi_options": "options",
+        "sagemaker_instance_type": INSTANCE_TYPE,
+    }
+    assert actual_ddp == expected_ddp
+
+
+def test_image_name_map(sagemaker_session):
+    e = DummyFramework(
+        "my_script.py",
+        image_name=IMAGE_URI,
+        role=ROLE,
+        sagemaker_session=sagemaker_session,
+        instance_count=INSTANCE_COUNT,
+        instance_type=INSTANCE_TYPE,
+    )
+
+    assert e.image_uri == IMAGE_URI
+
+
+@patch("sagemaker.git_utils.git_clone_repo")
+def test_git_support_with_branch_and_commit_succeed_estimator_class(
+    git_clone_repo, sagemaker_session
+):
+    git_clone_repo.side_effect = lambda gitconfig, entrypoint, source_dir=None, dependencies=None: {
+        "entry_point": "/tmp/repo_dir/entry_point",
+        "source_dir": None,
+        "dependencies": None,
+    }
+    git_config = {"repo": GIT_REPO, "branch": BRANCH, "commit": COMMIT}
+    entry_point = "entry_point"
+    fw = Estimator(
+        entry_point=entry_point,
+        git_config=git_config,
+        role=ROLE,
+        sagemaker_session=sagemaker_session,
+        instance_count=INSTANCE_COUNT,
+        instance_type=INSTANCE_TYPE,
+        image_uri=IMAGE_URI,
+    )
+    fw.fit()
+    git_clone_repo.assert_called_once_with(git_config, entry_point, None, None)
+
+
+@patch("sagemaker.estimator.Estimator._stage_user_code_in_s3")
+def test_script_mode_estimator(patched_stage_user_code, sagemaker_session):
+    patched_stage_user_code.return_value = UploadedCode(
+        s3_prefix="s3://bucket/key", script_name="script_name"
+    )
+    script_uri = "s3://codebucket/someprefix/sourcedir.tar.gz"
+    image_uri = "763104351884.dkr.ecr.us-west-2.amazonaws.com/pytorch-training:1.9.0-gpu-py38"
+    model_uri = "s3://someprefix2/models/model.tar.gz"
+    t = Estimator(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        sagemaker_session=sagemaker_session,
+        instance_count=INSTANCE_COUNT,
+        instance_type=INSTANCE_TYPE,
+        source_dir=script_uri,
+        image_uri=image_uri,
+        model_uri=model_uri,
+    )
+    t.fit("s3://bucket/mydata")
+
+    patched_stage_user_code.assert_called_once()
+    sagemaker_session.train.assert_called_once()
+
+
+@patch("time.time", return_value=TIME)
+@patch("sagemaker.estimator.tar_and_upload_dir")
+def test_script_mode_estimator_same_calls_as_framework(
+    patched_tar_and_upload_dir, sagemaker_session
+):
+
+    patched_tar_and_upload_dir.return_value = UploadedCode(
+        s3_prefix="s3://%s/%s" % ("bucket", "key"), script_name="script_name"
+    )
+    sagemaker_session.boto_region_name = REGION
+
+    script_uri = "s3://codebucket/someprefix/sourcedir.tar.gz"
+
+    instance_type = "ml.p2.xlarge"
+    instance_count = 1
+
+    model_uri = "s3://someprefix2/models/model.tar.gz"
+    training_data_uri = "s3://bucket/mydata"
+
+    generic_estimator = Estimator(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        region=REGION,
+        sagemaker_session=sagemaker_session,
+        instance_count=instance_count,
+        instance_type=instance_type,
+        source_dir=script_uri,
+        image_uri=IMAGE_URI,
+        model_uri=model_uri,
+        environment={"USE_SMDEBUG": "0"},
+        dependencies=[],
+        debugger_hook_config={},
+    )
+    generic_estimator.fit(training_data_uri)
+
+    generic_estimator_tar_and_upload_dir_args = patched_tar_and_upload_dir.call_args_list
+    generic_estimator_train_args = sagemaker_session.train.call_args_list
+
+    patched_tar_and_upload_dir.reset_mock()
+    sagemaker_session.train.reset_mock()
+
+    framework_estimator = DummyFramework(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        region=REGION,
+        source_dir=script_uri,
+        instance_count=instance_count,
+        instance_type=instance_type,
+        sagemaker_session=sagemaker_session,
+        model_uri=model_uri,
+        dependencies=[],
+        debugger_hook_config={},
+    )
+    framework_estimator.fit(training_data_uri)
+
+    assert len(generic_estimator_tar_and_upload_dir_args) == 1
+    assert len(generic_estimator_train_args) == 1
+    assert generic_estimator_tar_and_upload_dir_args == patched_tar_and_upload_dir.call_args_list
+    assert generic_estimator_train_args == sagemaker_session.train.call_args_list
+
+
+@patch("time.time", return_value=TIME)
+@patch("sagemaker.estimator.tar_and_upload_dir")
+@patch("sagemaker.model.Model._upload_code")
+def test_script_mode_estimator_tags_jumpstart_estimators_and_models(
+    patched_upload_code, patched_tar_and_upload_dir, sagemaker_session
+):
+    patched_tar_and_upload_dir.return_value = UploadedCode(
+        s3_prefix="s3://%s/%s" % ("bucket", "key"), script_name="script_name"
+    )
+    sagemaker_session.boto_region_name = REGION
+
+    instance_type = "ml.p2.xlarge"
+    instance_count = 1
+
+    training_data_uri = "s3://bucket/mydata"
+
+    jumpstart_source_dir = f"s3://{list(JUMPSTART_BUCKET_NAME_SET)[0]}/source_dirs/source.tar.gz"
+    jumpstart_source_dir_2 = f"s3://{list(JUMPSTART_BUCKET_NAME_SET)[1]}/source_dirs/source.tar.gz"
+
+    generic_estimator = Estimator(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        region=REGION,
+        sagemaker_session=sagemaker_session,
+        instance_count=instance_count,
+        instance_type=instance_type,
+        source_dir=jumpstart_source_dir,
+        image_uri=IMAGE_URI,
+        model_uri=jumpstart_source_dir_2,
+        tags=[{"Key": "some", "Value": "tag"}],
+    )
+    generic_estimator.fit(training_data_uri)
+
+    assert [
+        {"Key": "some", "Value": "tag"},
+        {
+            "Key": JumpStartTag.TRAINING_MODEL_URI.value,
+            "Value": jumpstart_source_dir_2,
+        },
+        {
+            "Key": JumpStartTag.TRAINING_SCRIPT_URI.value,
+            "Value": jumpstart_source_dir,
+        },
+    ] == sagemaker_session.train.call_args_list[0][1]["tags"]
+
+    sagemaker_session.reset_mock()
+    sagemaker_session.sagemaker_client.describe_training_job.return_value = {
+        "ModelArtifacts": {"S3ModelArtifacts": "some-uri"}
+    }
+
+    inference_jumpstart_source_dir = (
+        f"s3://{list(JUMPSTART_BUCKET_NAME_SET)[0]}/source_dirs/inference/source.tar.gz"
+    )
+
+    generic_estimator.deploy(
+        initial_instance_count=INSTANCE_COUNT,
+        instance_type=INSTANCE_TYPE,
+        image_uri=IMAGE_URI,
+        source_dir=inference_jumpstart_source_dir,
+        entry_point="inference.py",
+        role=ROLE,
+        tags=[{"Key": "deploys", "Value": "tag"}],
+    )
+
+    assert sagemaker_session.create_model.call_args_list[0][1]["tags"] == [
+        {"Key": "deploys", "Value": "tag"},
+        {
+            "Key": JumpStartTag.TRAINING_MODEL_URI.value,
+            "Value": jumpstart_source_dir_2,
+        },
+        {
+            "Key": JumpStartTag.TRAINING_SCRIPT_URI.value,
+            "Value": jumpstart_source_dir,
+        },
+        {
+            "Key": JumpStartTag.INFERENCE_SCRIPT_URI.value,
+            "Value": inference_jumpstart_source_dir,
+        },
+    ]
+    assert sagemaker_session.endpoint_from_production_variants.call_args_list[0][1]["tags"] == [
+        {"Key": "deploys", "Value": "tag"},
+        {
+            "Key": JumpStartTag.TRAINING_MODEL_URI.value,
+            "Value": jumpstart_source_dir_2,
+        },
+        {
+            "Key": JumpStartTag.TRAINING_SCRIPT_URI.value,
+            "Value": jumpstart_source_dir,
+        },
+        {
+            "Key": JumpStartTag.INFERENCE_SCRIPT_URI.value,
+            "Value": inference_jumpstart_source_dir,
+        },
+    ]
+
+
+@patch("time.time", return_value=TIME)
+@patch("sagemaker.estimator.tar_and_upload_dir")
+@patch("sagemaker.model.Model._upload_code")
+def test_script_mode_estimator_tags_jumpstart_models(
+    patched_upload_code, patched_tar_and_upload_dir, sagemaker_session
+):
+    patched_tar_and_upload_dir.return_value = UploadedCode(
+        s3_prefix="s3://%s/%s" % ("bucket", "key"), script_name="script_name"
+    )
+    sagemaker_session.boto_region_name = REGION
+
+    instance_type = "ml.p2.xlarge"
+    instance_count = 1
+
+    training_data_uri = "s3://bucket/mydata"
+
+    jumpstart_source_dir = f"s3://{list(JUMPSTART_BUCKET_NAME_SET)[0]}/source_dirs/source.tar.gz"
+
+    generic_estimator = Estimator(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        region=REGION,
+        sagemaker_session=sagemaker_session,
+        instance_count=instance_count,
+        instance_type=instance_type,
+        source_dir=jumpstart_source_dir,
+        image_uri=IMAGE_URI,
+        model_uri=MODEL_DATA,
+    )
+    generic_estimator.fit(training_data_uri)
+
+    assert [
+        {
+            "Key": JumpStartTag.TRAINING_SCRIPT_URI.value,
+            "Value": jumpstart_source_dir,
+        },
+    ] == sagemaker_session.train.call_args_list[0][1]["tags"]
+
+    sagemaker_session.reset_mock()
+    sagemaker_session.sagemaker_client.describe_training_job.return_value = {
+        "ModelArtifacts": {"S3ModelArtifacts": "some-uri"}
+    }
+
+    inference_source_dir = "s3://dsfsdfsd/sdfsdfs/sdfsd"
+
+    generic_estimator.deploy(
+        initial_instance_count=INSTANCE_COUNT,
+        instance_type=INSTANCE_TYPE,
+        image_uri=IMAGE_URI,
+        source_dir=inference_source_dir,
+        entry_point="inference.py",
+        role=ROLE,
+    )
+
+    assert sagemaker_session.create_model.call_args_list[0][1]["tags"] == [
+        {
+            "Key": JumpStartTag.TRAINING_SCRIPT_URI.value,
+            "Value": jumpstart_source_dir,
+        },
+    ]
+    assert sagemaker_session.endpoint_from_production_variants.call_args_list[0][1]["tags"] == [
+        {
+            "Key": JumpStartTag.TRAINING_SCRIPT_URI.value,
+            "Value": jumpstart_source_dir,
+        },
+    ]
+
+
+@patch("time.time", return_value=TIME)
+@patch("sagemaker.estimator.tar_and_upload_dir")
+@patch("sagemaker.model.Model._upload_code")
+def test_script_mode_estimator_tags_jumpstart_models_with_no_estimator_js_tags(
+    patched_upload_code, patched_tar_and_upload_dir, sagemaker_session
+):
+    patched_tar_and_upload_dir.return_value = UploadedCode(
+        s3_prefix="s3://%s/%s" % ("bucket", "key"), script_name="script_name"
+    )
+    sagemaker_session.boto_region_name = REGION
+
+    instance_type = "ml.p2.xlarge"
+    instance_count = 1
+
+    training_data_uri = "s3://bucket/mydata"
+
+    source_dir = "s3://dsfsdfsd/sdfsdfs/sdfsd"
+
+    generic_estimator = Estimator(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        region=REGION,
+        sagemaker_session=sagemaker_session,
+        instance_count=instance_count,
+        instance_type=instance_type,
+        source_dir=source_dir,
+        image_uri=IMAGE_URI,
+        model_uri=MODEL_DATA,
+    )
+    generic_estimator.fit(training_data_uri)
+
+    assert None is sagemaker_session.train.call_args_list[0][1]["tags"]
+
+    sagemaker_session.reset_mock()
+    sagemaker_session.sagemaker_client.describe_training_job.return_value = {
+        "ModelArtifacts": {"S3ModelArtifacts": "some-uri"}
+    }
+
+    inference_jumpstart_source_dir = (
+        f"s3://{list(JUMPSTART_BUCKET_NAME_SET)[0]}/source_dirs/inference/source.tar.gz"
+    )
+
+    generic_estimator.deploy(
+        initial_instance_count=INSTANCE_COUNT,
+        instance_type=INSTANCE_TYPE,
+        image_uri=IMAGE_URI,
+        source_dir=inference_jumpstart_source_dir,
+        entry_point="inference.py",
+        role=ROLE,
+    )
+
+    assert sagemaker_session.create_model.call_args_list[0][1]["tags"] == [
+        {
+            "Key": JumpStartTag.INFERENCE_SCRIPT_URI.value,
+            "Value": inference_jumpstart_source_dir,
+        },
+    ]
+    assert sagemaker_session.endpoint_from_production_variants.call_args_list[0][1]["tags"] == [
+        {
+            "Key": JumpStartTag.INFERENCE_SCRIPT_URI.value,
+            "Value": inference_jumpstart_source_dir,
+        },
+    ]
+
+
+@patch("time.time", return_value=TIME)
+@patch("sagemaker.estimator.tar_and_upload_dir")
+@patch("sagemaker.model.Model._upload_code")
+@patch("sagemaker.utils.repack_model")
+def test_all_framework_estimators_add_jumpstart_tags(
+    patched_repack_model, patched_upload_code, patched_tar_and_upload_dir, sagemaker_session
+):
+
+    sagemaker_session.boto_region_name = REGION
+    sagemaker_session.sagemaker_client.describe_training_job.return_value = {
+        "ModelArtifacts": {"S3ModelArtifacts": "some-uri"}
+    }
+
+    patched_tar_and_upload_dir.return_value = UploadedCode(
+        s3_prefix="s3://%s/%s" % ("bucket", "key"), script_name="script_name"
+    )
+
+    framework_estimator_classes_to_kwargs = {
+        PyTorch: {
+            "framework_version": "1.5.0",
+            "py_version": "py3",
+            "instance_type": "ml.p2.xlarge",
+        },
+        TensorFlow: {
+            "framework_version": "2.3",
+            "py_version": "py37",
+            "instance_type": "ml.p2.xlarge",
+        },
+        HuggingFace: {
+            "pytorch_version": "1.7.1",
+            "py_version": "py36",
+            "transformers_version": "4.6.1",
+            "instance_type": "ml.p2.xlarge",
+        },
+        MXNet: {"framework_version": "1.7.0", "py_version": "py3", "instance_type": "ml.p2.xlarge"},
+        SKLearn: {"framework_version": "0.23-1", "instance_type": "ml.m2.xlarge"},
+        XGBoost: {"framework_version": "1.3-1", "instance_type": "ml.m2.xlarge"},
+    }
+    jumpstart_model_uri = f"s3://{list(JUMPSTART_BUCKET_NAME_SET)[0]}/model_dirs/model.tar.gz"
+    jumpstart_model_uri_2 = f"s3://{list(JUMPSTART_BUCKET_NAME_SET)[1]}/model_dirs/model.tar.gz"
+    for framework_estimator_class, kwargs in framework_estimator_classes_to_kwargs.items():
+        estimator = framework_estimator_class(
+            entry_point=ENTRY_POINT,
+            role=ROLE,
+            sagemaker_session=sagemaker_session,
+            model_uri=jumpstart_model_uri,
+            instance_count=INSTANCE_COUNT,
+            **kwargs,
+        )
+
+        estimator.fit()
+
+        assert {
+            "Key": JumpStartTag.TRAINING_MODEL_URI.value,
+            "Value": jumpstart_model_uri,
+        } in sagemaker_session.train.call_args_list[0][1]["tags"]
+
+        estimator.deploy(
+            initial_instance_count=INSTANCE_COUNT,
+            instance_type=kwargs["instance_type"],
+            image_uri=IMAGE_URI,
+            source_dir=jumpstart_model_uri_2,
+            entry_point="inference.py",
+            role=ROLE,
+        )
+
+        assert sagemaker_session.create_model.call_args_list[0][1]["tags"] == [
+            {
+                "Key": JumpStartTag.TRAINING_MODEL_URI.value,
+                "Value": jumpstart_model_uri,
+            },
+            {
+                "Key": JumpStartTag.INFERENCE_SCRIPT_URI.value,
+                "Value": jumpstart_model_uri_2,
+            },
+        ]
+        assert sagemaker_session.endpoint_from_production_variants.call_args_list[0][1]["tags"] == [
+            {
+                "Key": JumpStartTag.TRAINING_MODEL_URI.value,
+                "Value": jumpstart_model_uri,
+            },
+            {
+                "Key": JumpStartTag.INFERENCE_SCRIPT_URI.value,
+                "Value": jumpstart_model_uri_2,
+            },
+        ]
+
+        sagemaker_session.train.reset_mock()
+
+
+@patch("time.time", return_value=TIME)
+@patch("sagemaker.estimator.tar_and_upload_dir")
+@patch("sagemaker.model.Model._upload_code")
+def test_script_mode_estimator_uses_jumpstart_base_name_with_js_models(
+    patched_upload_code, patched_tar_and_upload_dir, sagemaker_session
+):
+    patched_tar_and_upload_dir.return_value = UploadedCode(
+        s3_prefix="s3://%s/%s" % ("bucket", "key"), script_name="script_name"
+    )
+    sagemaker_session.boto_region_name = REGION
+
+    instance_type = "ml.p2.xlarge"
+    instance_count = 1
+
+    training_data_uri = "s3://bucket/mydata"
+
+    source_dir = "s3://dsfsdfsd/sdfsdfs/sdfsd"
+
+    generic_estimator = Estimator(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        region=REGION,
+        sagemaker_session=sagemaker_session,
+        instance_count=instance_count,
+        instance_type=instance_type,
+        source_dir=source_dir,
+        image_uri=IMAGE_URI,
+        model_uri=MODEL_DATA,
+    )
+    generic_estimator.fit(training_data_uri)
+
+    assert not sagemaker_session.train.call_args_list[0][1]["job_name"].startswith(
+        JUMPSTART_RESOURCE_BASE_NAME
+    )
+    sagemaker_session.reset_mock()
+    sagemaker_session.sagemaker_client.describe_training_job.return_value = {
+        "ModelArtifacts": {"S3ModelArtifacts": "some-uri"}
+    }
+
+    inference_jumpstart_source_dir = (
+        f"s3://{list(JUMPSTART_BUCKET_NAME_SET)[0]}/source_dirs/inference/source.tar.gz"
+    )
+
+    generic_estimator.deploy(
+        initial_instance_count=INSTANCE_COUNT,
+        instance_type=INSTANCE_TYPE,
+        image_uri=IMAGE_URI,
+        source_dir=inference_jumpstart_source_dir,
+        entry_point="inference.py",
+        role=ROLE,
+    )
+
+    assert sagemaker_session.create_model.call_args_list[0][0][0].startswith(
+        JUMPSTART_RESOURCE_BASE_NAME
+    )
+
+    assert sagemaker_session.endpoint_from_production_variants.call_args_list[0].startswith(
+        JUMPSTART_RESOURCE_BASE_NAME
+    )
+
+
+@patch("time.time", return_value=TIME)
+@patch("sagemaker.estimator.tar_and_upload_dir")
+@patch("sagemaker.model.Model._upload_code")
+@patch("sagemaker.utils.repack_model")
+def test_all_framework_estimators_add_jumpstart_base_name(
+    patched_repack_model, patched_upload_code, patched_tar_and_upload_dir, sagemaker_session
+):
+
+    sagemaker_session.boto_region_name = REGION
+    sagemaker_session.sagemaker_client.describe_training_job.return_value = {
+        "ModelArtifacts": {"S3ModelArtifacts": "some-uri"}
+    }
+
+    patched_tar_and_upload_dir.return_value = UploadedCode(
+        s3_prefix="s3://%s/%s" % ("bucket", "key"), script_name="script_name"
+    )
+
+    framework_estimator_classes_to_kwargs = {
+        PyTorch: {
+            "framework_version": "1.5.0",
+            "py_version": "py3",
+            "instance_type": "ml.p2.xlarge",
+        },
+        TensorFlow: {
+            "framework_version": "2.3",
+            "py_version": "py37",
+            "instance_type": "ml.p2.xlarge",
+        },
+        HuggingFace: {
+            "pytorch_version": "1.7.1",
+            "py_version": "py36",
+            "transformers_version": "4.6.1",
+            "instance_type": "ml.p2.xlarge",
+        },
+        MXNet: {"framework_version": "1.7.0", "py_version": "py3", "instance_type": "ml.p2.xlarge"},
+        SKLearn: {"framework_version": "0.23-1", "instance_type": "ml.m2.xlarge"},
+        XGBoost: {"framework_version": "1.3-1", "instance_type": "ml.m2.xlarge"},
+    }
+    jumpstart_model_uri = f"s3://{list(JUMPSTART_BUCKET_NAME_SET)[0]}/model_dirs/model.tar.gz"
+    jumpstart_model_uri_2 = f"s3://{list(JUMPSTART_BUCKET_NAME_SET)[1]}/model_dirs/model.tar.gz"
+    for framework_estimator_class, kwargs in framework_estimator_classes_to_kwargs.items():
+        estimator = framework_estimator_class(
+            entry_point=ENTRY_POINT,
+            role=ROLE,
+            sagemaker_session=sagemaker_session,
+            model_uri=jumpstart_model_uri,
+            instance_count=INSTANCE_COUNT,
+            **kwargs,
+        )
+
+        estimator.fit()
+
+        assert sagemaker_session.train.call_args_list[0][1]["job_name"].startswith(
+            JUMPSTART_RESOURCE_BASE_NAME
+        )
+
+        estimator.deploy(
+            initial_instance_count=INSTANCE_COUNT,
+            instance_type=kwargs["instance_type"],
+            image_uri=IMAGE_URI,
+            source_dir=jumpstart_model_uri_2,
+            entry_point="inference.py",
+            role=ROLE,
+        )
+
+        assert sagemaker_session.create_model.call_args_list[0][0][0].startswith(
+            JUMPSTART_RESOURCE_BASE_NAME
+        )
+
+        assert sagemaker_session.endpoint_from_production_variants.call_args_list[0].startswith(
+            JUMPSTART_RESOURCE_BASE_NAME
+        )
+
+        sagemaker_session.endpoint_from_production_variants.reset_mock()
+        sagemaker_session.create_model.reset_mock()
+        sagemaker_session.train.reset_mock()

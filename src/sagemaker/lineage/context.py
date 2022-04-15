@@ -13,12 +13,26 @@
 """This module contains code to create and manage SageMaker ``Context``."""
 from __future__ import absolute_import
 
+from datetime import datetime
+from typing import Iterator, Optional, List
+
 from sagemaker.apiutils import _base_types
 from sagemaker.lineage import (
     _api_types,
     _utils,
     association,
 )
+from sagemaker.lineage._api_types import ContextSummary
+from sagemaker.lineage.query import (
+    LineageQuery,
+    LineageFilter,
+    LineageSourceEnum,
+    LineageEntityEnum,
+    LineageQueryDirectionEnum,
+)
+from sagemaker.lineage.artifact import Artifact
+from sagemaker.lineage.action import Action
+from sagemaker.lineage.lineage_trial_component import LineageTrialComponent
 
 
 class Context(_base_types.Record):
@@ -38,20 +52,20 @@ class Context(_base_types.Record):
         last_modified_by (obj): Contextual info on which account created the context.
     """
 
-    context_arn = None
-    context_name = None
-    context_type = None
-    properties = None
-    tags = None
-    creation_time = None
-    created_by = None
-    last_modified_time = None
-    last_modified_by = None
+    context_arn: str = None
+    context_name: str = None
+    context_type: str = None
+    properties: dict = None
+    tags: list = None
+    creation_time: datetime = None
+    created_by: str = None
+    last_modified_time: datetime = None
+    last_modified_by: str = None
 
-    _boto_load_method = "describe_context"
-    _boto_create_method = "create_context"
-    _boto_update_method = "update_context"
-    _boto_delete_method = "delete_context"
+    _boto_load_method: str = "describe_context"
+    _boto_create_method: str = "create_context"
+    _boto_update_method: str = "update_context"
+    _boto_delete_method: str = "delete_context"
 
     _custom_boto_types = {
         "source": (_api_types.ContextSource, False),
@@ -65,7 +79,7 @@ class Context(_base_types.Record):
     ]
     _boto_delete_members = ["context_name"]
 
-    def save(self):
+    def save(self) -> "Context":
         """Save the state of this Context to SageMaker.
 
         Returns:
@@ -73,7 +87,7 @@ class Context(_base_types.Record):
         """
         return self._invoke_api(self._boto_update_method, self._boto_update_members)
 
-    def delete(self, disassociate=False):
+    def delete(self, disassociate: bool = False):
         """Delete the context object.
 
         Args:
@@ -87,7 +101,8 @@ class Context(_base_types.Record):
                 source_arn=self.context_arn, sagemaker_session=self.sagemaker_session
             )
             _utils._disassociate(
-                destination_arn=self.context_arn, sagemaker_session=self.sagemaker_session
+                destination_arn=self.context_arn,
+                sagemaker_session=self.sagemaker_session,
             )
         return self._invoke_api(self._boto_delete_method, self._boto_delete_members)
 
@@ -114,7 +129,7 @@ class Context(_base_types.Record):
         return self._set_tags(resource_arn=self.context_arn, tags=tags)
 
     @classmethod
-    def load(cls, context_name, sagemaker_session=None):
+    def load(cls, context_name: str, sagemaker_session=None) -> "Context":
         """Load an existing context and return an ``Context`` object representing it.
 
         Examples:
@@ -155,15 +170,15 @@ class Context(_base_types.Record):
     @classmethod
     def create(
         cls,
-        context_name=None,
-        source_uri=None,
-        source_type=None,
-        context_type=None,
-        description=None,
-        properties=None,
-        tags=None,
+        context_name: str = None,
+        source_uri: str = None,
+        source_type: str = None,
+        context_type: str = None,
+        description: str = None,
+        properties: dict = None,
+        tags: dict = None,
         sagemaker_session=None,
-    ):
+    ) -> "Context":
         """Create a context and return a ``Context`` object representing it.
 
         Args:
@@ -196,16 +211,16 @@ class Context(_base_types.Record):
     @classmethod
     def list(
         cls,
-        source_uri=None,
-        context_type=None,
-        created_after=None,
-        created_before=None,
-        sort_by=None,
-        sort_order=None,
-        max_results=None,
-        next_token=None,
+        source_uri: Optional[str] = None,
+        context_type: Optional[str] = None,
+        created_after: Optional[datetime] = None,
+        created_before: Optional[datetime] = None,
+        sort_by: Optional[str] = None,
+        sort_order: Optional[str] = None,
+        max_results: Optional[int] = None,
+        next_token: Optional[str] = None,
         sagemaker_session=None,
-    ):
+    ) -> Iterator[ContextSummary]:
         """Return a list of context summaries.
 
         Args:
@@ -243,23 +258,41 @@ class Context(_base_types.Record):
             sagemaker_session=sagemaker_session,
         )
 
+    def actions(self, direction: LineageQueryDirectionEnum) -> List[Action]:
+        """Use the lineage query to retrieve actions that use this context.
+
+        Args:
+            direction (LineageQueryDirectionEnum): The query direction.
+
+        Returns:
+            list of Actions: Actions.
+        """
+        query_filter = LineageFilter(entities=[LineageEntityEnum.ACTION])
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.context_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+        return [vertex.to_lineage_object() for vertex in query_result.vertices]
+
 
 class EndpointContext(Context):
     """An Amazon SageMaker endpoint context, which is part of a SageMaker lineage."""
 
-    def models(self):
-        """Get all models deployed by all endpoint versions of the endpoint.
+    def models(self) -> List[association.Association]:
+        """Use Lineage API to get all models deployed by this endpoint.
 
         Returns:
             list of Associations: Associations that destination represents an endpoint's model.
         """
-        endpoint_actions = association.Association.list(
+        endpoint_actions: Iterator = association.Association.list(
             sagemaker_session=self.sagemaker_session,
             source_arn=self.context_arn,
             destination_type="ModelDeployment",
         )
 
-        model_list = [
+        model_list: list = [
             model
             for endpoint_action in endpoint_actions
             for model in association.Association.list(
@@ -269,3 +302,203 @@ class EndpointContext(Context):
             )
         ]
         return model_list
+
+    def models_v2(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.DESCENDANTS
+    ) -> List[Artifact]:
+        """Use the lineage query to retrieve downstream model artifacts that use this endpoint.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of Artifacts: Artifacts representing a model.
+        """
+        # Firstly query out the model_deployment vertices
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.ACTION], sources=[LineageSourceEnum.MODEL_DEPLOYMENT]
+        )
+        model_deployment_query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.context_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+        if not model_deployment_query_result:
+            return []
+
+        model_deployment_vertices: [] = model_deployment_query_result.vertices
+
+        # Secondary query model based on model deployment
+        model_vertices = []
+        for vertex in model_deployment_vertices:
+            query_result = LineageQuery(self.sagemaker_session).query(
+                start_arns=[vertex.arn],
+                query_filter=LineageFilter(
+                    entities=[LineageEntityEnum.ARTIFACT], sources=[LineageSourceEnum.MODEL]
+                ),
+                direction=LineageQueryDirectionEnum.DESCENDANTS,
+                include_edges=False,
+            )
+            model_vertices.extend(query_result.vertices)
+
+        if not model_vertices:
+            return []
+
+        model_artifacts = []
+        for vertex in model_vertices:
+            lineage_object = vertex.to_lineage_object()
+            model_artifacts.append(lineage_object)
+
+        return model_artifacts
+
+    def dataset_artifacts(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.ASCENDANTS
+    ) -> List[Artifact]:
+        """Use the lineage query to retrieve datasets that use this endpoint.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of Artifacts: Artifacts representing a dataset.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.ARTIFACT], sources=[LineageSourceEnum.DATASET]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.context_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+
+        return [vertex.to_lineage_object() for vertex in query_result.vertices]
+
+    def training_job_arns(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.ASCENDANTS
+    ) -> List[str]:
+        """Get ARNs for all training jobs that appear in the endpoint's lineage.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of str: Training job ARNs.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.TRIAL_COMPONENT], sources=[LineageSourceEnum.TRAINING_JOB]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.context_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+
+        training_job_arns = []
+        for vertex in query_result.vertices:
+            trial_component_name = _utils.get_resource_name_from_arn(vertex.arn)
+            trial_component = self.sagemaker_session.sagemaker_client.describe_trial_component(
+                TrialComponentName=trial_component_name
+            )
+            training_job_arns.append(trial_component["Source"]["SourceArn"])
+        return training_job_arns
+
+    def processing_jobs(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.ASCENDANTS
+    ) -> List[LineageTrialComponent]:
+        """Use the lineage query to retrieve processing jobs that use this endpoint.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of LineageTrialComponent: Lineage trial component that represent Processing jobs.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.TRIAL_COMPONENT], sources=[LineageSourceEnum.PROCESSING_JOB]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.context_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+        return [vertex.to_lineage_object() for vertex in query_result.vertices]
+
+    def transform_jobs(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.ASCENDANTS
+    ) -> List[LineageTrialComponent]:
+        """Use the lineage query to retrieve transform jobs that use this endpoint.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of LineageTrialComponent: Lineage trial component that represent Transform jobs.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.TRIAL_COMPONENT], sources=[LineageSourceEnum.TRANSFORM_JOB]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.context_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+        return [vertex.to_lineage_object() for vertex in query_result.vertices]
+
+    def trial_components(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.ASCENDANTS
+    ) -> List[LineageTrialComponent]:
+        """Use the lineage query to retrieve trial components that use this endpoint.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of LineageTrialComponent: Lineage trial component.
+        """
+        query_filter = LineageFilter(entities=[LineageEntityEnum.TRIAL_COMPONENT])
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.context_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+        return [vertex.to_lineage_object() for vertex in query_result.vertices]
+
+    def pipeline_execution_arn(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.ASCENDANTS
+    ) -> str:
+        """Get the ARN for the pipeline execution associated with this endpoint (if any).
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            str: A pipeline execution ARN.
+        """
+        training_job_arns = self.training_job_arns(direction=direction)
+        for training_job_arn in training_job_arns:
+            tags = self.sagemaker_session.sagemaker_client.list_tags(ResourceArn=training_job_arn)[
+                "Tags"
+            ]
+            for tag in tags:
+                if tag["Key"] == "sagemaker:pipeline-execution-arn":
+                    return tag["Value"]
+
+        return None
+
+
+class ModelPackageGroup(Context):
+    """An Amazon SageMaker model package group context, which is part of a SageMaker lineage."""
+
+    def pipeline_execution_arn(self) -> str:
+        """Get the ARN for the pipeline execution associated with this model package group (if any).
+
+        Returns:
+            str: A pipeline execution ARN.
+        """
+        return self.properties.get("PipelineExecutionArn")

@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -24,8 +24,8 @@ from sagemaker.workflow.condition_step import ConditionStep
 
 
 class CustomStep(Step):
-    def __init__(self, name):
-        super(CustomStep, self).__init__(name, StepTypeEnum.TRAINING)
+    def __init__(self, name, display_name=None, description=None):
+        super(CustomStep, self).__init__(name, display_name, description, StepTypeEnum.TRAINING)
         self._properties = Properties(path=f"Steps.{name}")
 
     @property
@@ -40,14 +40,20 @@ class CustomStep(Step):
 def test_condition_step():
     param = ParameterInteger(name="MyInt")
     cond = ConditionEquals(left=param, right=1)
-    step1 = CustomStep("MyStep1")
-    step2 = CustomStep("MyStep2")
+    step1 = CustomStep(name="MyStep1")
+    step2 = CustomStep(name="MyStep2")
     cond_step = ConditionStep(
-        name="MyConditionStep", conditions=[cond], if_steps=[step1], else_steps=[step2]
+        name="MyConditionStep",
+        depends_on=["TestStep"],
+        conditions=[cond],
+        if_steps=[step1],
+        else_steps=[step2],
     )
+    cond_step.add_depends_on(["SecondTestStep"])
     assert cond_step.to_request() == {
         "Name": "MyConditionStep",
         "Type": "Condition",
+        "DependsOn": ["TestStep", "SecondTestStep"],
         "Arguments": {
             "Conditions": [
                 {

@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -49,7 +49,7 @@ HEADER_OF_PREDICTED_LABEL = "Prediction"
 HEADERS_OF_FEATURES = ["F1", "F2", "F3", "F4", "F5", "F6", "F7"]
 ALL_HEADERS = [*HEADERS_OF_FEATURES, HEADER_OF_LABEL, HEADER_OF_PREDICTED_LABEL]
 
-CRON = "cron(*/5 * * * ? *)"
+CRON = "cron(0 * * * ? *)"
 UPDATED_CRON = CronExpressionGenerator.daily()
 MAX_RUNTIME_IN_SECONDS = 30 * 60
 UPDATED_MAX_RUNTIME_IN_SECONDS = 25 * 60
@@ -230,6 +230,7 @@ def test_model_quality_monitor(
     monitor.delete_monitoring_schedule()
 
 
+@pytest.mark.slow_test
 @pytest.mark.skipif(
     tests.integ.test_region() in tests.integ.NO_MODEL_MONITORING_REGIONS,
     reason="ModelMonitoring is not yet supported in this region.",
@@ -254,6 +255,7 @@ def test_run_model_quality_monitor(
     monitor.delete_monitoring_schedule()
 
 
+@pytest.mark.slow_test
 @pytest.mark.skipif(
     tests.integ.test_region() in tests.integ.NO_MODEL_MONITORING_REGIONS,
     reason="ModelMonitoring is not yet supported in this region.",

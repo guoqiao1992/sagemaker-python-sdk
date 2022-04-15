@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -18,9 +18,8 @@ import logging
 from packaging import version
 
 from sagemaker import image_uris, s3, utils
-from sagemaker.debugger import DebuggerHookConfig
 from sagemaker.deprecations import renamed_kwargs
-from sagemaker.estimator import Framework
+from sagemaker.estimator import Framework, EstimatorBase
 import sagemaker.fw_utils as fw
 from sagemaker.tensorflow import defaults
 from sagemaker.tensorflow.model import TensorFlowModel
@@ -84,41 +83,79 @@ class TensorFlow(Framework):
                 (default: None). Currently, the following are supported:
                 distributed training with parameter servers, SageMaker Distributed (SMD) Data
                 and Model Parallelism, and MPI. SMD Model Parallelism can only be used with MPI.
-                To enable parameter server use the following setup:
 
-                .. code:: python
+                **To enable the SageMaker distributed data parallelism:**
 
-                    {
-                        "parameter_server": {
-                            "enabled": True
-                        }
-                    }
+                    .. code:: python
 
-                To enable MPI:
+                        { "smdistributed": { "dataparallel": { "enabled": True } } }
 
-                .. code:: python
+                    .. seealso::
 
-                    {
-                        "mpi": {
-                            "enabled": True
-                        }
-                    }
+                        To learn more, see :ref:`sdp_api_docs_toc`.
 
-                To enable SMDistributed Data Parallel or Model Parallel:
+                **To enable the SageMaker distributed model parallelism:**
 
-                .. code:: python
+                    .. code:: python
 
-                    {
-                        "smdistributed": {
-                            "dataparallel": {
-                                "enabled": True
+                        {
+                            "smdistributed": {
+                                "modelparallel": {
+                                    "enabled":True,
+                                    "parameters": {
+                                        "partitions": 2,
+                                        "microbatches": 4,
+                                        "placement_strategy": "spread",
+                                        "pipeline": "interleaved",
+                                        "optimize": "speed",
+                                        "ddp": True,
+                                    }
                             },
-                            "modelparallel": {
-                                "enabled": True,
-                                "parameters": {}
+                            "mpi": {
+                                "enabled" : True,
+                                "processes_per_host" : 8,
                             }
                         }
-                    }
+
+                    .. note::
+
+                        The SageMaker distributed model parallel library internally uses MPI.
+                        In order to use model parallelism, MPI also must be enabled.
+
+                    .. seealso::
+
+                        To learn more, see :ref:`smp_api_docs_toc`.
+
+                    .. seealso::
+
+                        To find a complete list of parameters for SageMaker model parallelism,
+                        see :ref:`sm-sdk-modelparallel-general`.
+
+                **To enable MPI:**
+
+                    .. code:: python
+
+                        {
+                            "mpi": {
+                                "enabled": True
+                            }
+                        }
+
+                    To learn more, see `Training with Horovod
+                    <https://sagemaker.readthedocs.io/en/stable/frameworks/tensorflow/using_tf.html#training-with-horovod>`_.
+
+                **To enable parameter server:**
+
+                    .. code:: python
+
+                        {
+                            "parameter_server": {
+                                "enabled": True
+                            }
+                        }
+
+                    To learn more, see `Training with parameter servers
+                    <https://sagemaker.readthedocs.io/en/stable/frameworks/tensorflow/using_tf.html#training-with-parameter-servers>`_.
 
             **kwargs: Additional kwargs passed to the Framework constructor.
 
@@ -265,9 +302,10 @@ class TensorFlow(Framework):
         dependencies=None,
         **kwargs
     ):
-        """Create a ``TensorFlowModel`` object that can be used for creating
-        SageMaker model entities, deploying to a SageMaker endpoint, or
-        starting SageMaker Batch Transform jobs.
+        """Creates ``TensorFlowModel`` object to be used for creating SageMaker model entities.
+
+        This can be done by deploying it to a SageMaker endpoint,
+        or starting SageMaker Batch Transform jobs.
 
         Args:
             role (str): The ``TensorFlowModel``, which is also used during transform jobs.
@@ -319,47 +357,17 @@ class TensorFlow(Framework):
     def hyperparameters(self):
         """Return hyperparameters used by your custom TensorFlow code during model training."""
         hyperparameters = super(TensorFlow, self).hyperparameters()
-        additional_hyperparameters = {}
-
-        if "parameter_server" in self.distribution:
-            ps_enabled = self.distribution["parameter_server"].get("enabled", False)
-            additional_hyperparameters[self.LAUNCH_PS_ENV_NAME] = ps_enabled
-
-        mpi_enabled = False
-        if "mpi" in self.distribution:
-            mpi_dict = self.distribution["mpi"]
-            mpi_enabled = mpi_dict.get("enabled", False)
-            additional_hyperparameters[self.LAUNCH_MPI_ENV_NAME] = mpi_enabled
-
-            if mpi_dict.get("processes_per_host"):
-                additional_hyperparameters[self.MPI_NUM_PROCESSES_PER_HOST] = mpi_dict.get(
-                    "processes_per_host"
-                )
-
-            additional_hyperparameters[self.MPI_CUSTOM_MPI_OPTIONS] = mpi_dict.get(
-                "custom_mpi_options", ""
-            )
-
-            if fw.get_mp_parameters(self.distribution):
-                additional_hyperparameters["mp_parameters"] = fw.get_mp_parameters(
-                    self.distribution
-                )
-
-        elif "modelparallel" in self.distribution.get("smdistributed", {}):
-            raise ValueError("Cannot use Model Parallelism without MPI enabled!")
-
-        if "smdistributed" in self.distribution:
-            # smdistributed strategy selected
-            smdistributed = self.distribution["smdistributed"]
-            smdataparallel_enabled = smdistributed.get("dataparallel", {}).get("enabled", False)
-            additional_hyperparameters[self.LAUNCH_SM_DDP_ENV_NAME] = smdataparallel_enabled
-            additional_hyperparameters[self.INSTANCE_TYPE] = self.instance_type
+        additional_hyperparameters = self._distribution_configuration(self.distribution)
 
         if self.model_dir is not False:
-            self.model_dir = self.model_dir or self._default_s3_path("model", mpi=mpi_enabled)
+            self.model_dir = self.model_dir or self._default_s3_path(
+                "model", mpi=additional_hyperparameters.get(self.LAUNCH_MPI_ENV_NAME, False)
+            )
             additional_hyperparameters["model_dir"] = self.model_dir
 
-        hyperparameters.update(Framework._json_encode_hyperparameters(additional_hyperparameters))
+        hyperparameters.update(
+            EstimatorBase._json_encode_hyperparameters(additional_hyperparameters)
+        )
         return hyperparameters
 
     def _default_s3_path(self, directory, mpi=False):
@@ -374,11 +382,11 @@ class TensorFlow(Framework):
         return None
 
     def _validate_and_set_debugger_configs(self):
-        """Disable Debugger Hook Config for ParameterServer (PS) as it is not
-        supported in smdebug.
+        """Disable Debugger Hook Config for ParameterServer (PS) as it is not supported in smdebug.
 
         Else, set default HookConfig
         """
+        super(TensorFlow, self)._validate_and_set_debugger_configs()
         ps_enabled = "parameter_server" in self.distribution and self.distribution[
             "parameter_server"
         ].get("enabled", False)
@@ -390,11 +398,6 @@ class TensorFlow(Framework):
                 )
             self.debugger_hook_config = None
             self.debugger_rule_configs = None
-        elif self.debugger_hook_config is None and fw._region_supports_debugger(
-            self.sagemaker_session.boto_session.region_name
-        ):
-            # Set defaults for debugging.
-            self.debugger_hook_config = DebuggerHookConfig(s3_output_path=self.output_path)
 
     def transformer(
         self,
@@ -416,8 +419,9 @@ class TensorFlow(Framework):
         enable_network_isolation=None,
         model_name=None,
     ):
-        """Return a ``Transformer`` that uses a SageMaker Model based on the training job. It
-        reuses the SageMaker Session and base job name used by the Estimator.
+        """Return a ``Transformer`` that uses a SageMaker Model based on the training job.
+
+        It reuses the SageMaker Session and base job name used by the Estimator.
 
         Args:
             instance_count (int): Number of EC2 instances to use.

@@ -1,4 +1,4 @@
-# Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -25,8 +25,9 @@ from sagemaker.predictor import Predictor
 
 
 class AlgorithmEstimator(EstimatorBase):
-    """A generic Estimator to train using any algorithm object (with an
-    ``algorithm_arn``). The Algorithm can be your own, or any Algorithm from AWS
+    """A generic Estimator to train using any algorithm object (with an ``algorithm_arn``).
+
+    The Algorithm can be your own, or any Algorithm from AWS
     Marketplace that you have a valid subscription for. This class will perform
     client-side validation on all the inputs.
     """
@@ -70,9 +71,8 @@ class AlgorithmEstimator(EstimatorBase):
                 access training data and model artifacts. After the endpoint
                 is created, the inference code might use the IAM role, if it
                 needs to access an AWS resource.
-            instance_count (int): Number of Amazon EC2 instances to
-                use for training. instance_type (str): Type of EC2
-                instance to use for training, for example, 'ml.c4.xlarge'.
+            instance_count (int): Number of Amazon EC2 instances to use for training.
+            instance_type (str): Type of EC2 instance to use for training, for example, 'ml.c4.xlarge'.
             volume_size (int): Size in GB of the EBS volume to use for
                 storing input data during training (default: 30). Must be large enough to store
                 training data if File Mode is used (which is the default).
@@ -174,7 +174,7 @@ class AlgorithmEstimator(EstimatorBase):
         self.validate_train_spec()
         self.hyperparameter_definitions = self._parse_hyperparameters()
 
-        self.hyperparam_dict = {}
+        self._hyperparameters = {}
         if hyperparameters:
             self.set_hyperparameters(**hyperparameters)
 
@@ -212,13 +212,10 @@ class AlgorithmEstimator(EstimatorBase):
             )
 
     def set_hyperparameters(self, **kwargs):
-        """
-        Args:
-            **kwargs:
-        """
+        """Placeholder docstring"""
         for k, v in kwargs.items():
             value = self._validate_and_cast_hyperparameter(k, v)
-            self.hyperparam_dict[k] = value
+            self._hyperparameters[k] = value
 
         self._validate_and_set_default_hyperparameters()
 
@@ -228,7 +225,7 @@ class AlgorithmEstimator(EstimatorBase):
         The fit() method, that does the model training, calls this method to
         find the hyperparameters you specified.
         """
-        return self.hyperparam_dict
+        return self._hyperparameters
 
     def training_image_uri(self):
         """Returns the docker image to use for training.
@@ -330,9 +327,9 @@ class AlgorithmEstimator(EstimatorBase):
         role=None,
         volume_kms_key=None,
     ):
-        """Return a ``Transformer`` that uses a SageMaker Model based on the
-        training job. It reuses the SageMaker Session and base job name used by
-        the Estimator.
+        """Return a ``Transformer`` that uses a SageMaker Model based on the  training job.
+
+        It reuses the SageMaker Session and base job name used by the Estimator.
 
         Args:
             instance_count (int): Number of EC2 instances to use.
@@ -413,32 +410,19 @@ class AlgorithmEstimator(EstimatorBase):
         # Validate hyperparameters
         # an explicit call to set_hyperparameters() will also validate the hyperparameters
         # but it is possible that the user never called it.
-        """
-        Args:
-            job_name:
-        """
         self._validate_and_set_default_hyperparameters()
 
         super(AlgorithmEstimator, self)._prepare_for_training(job_name)
 
     def fit(self, inputs=None, wait=True, logs=True, job_name=None):
-        """
-        Args:
-            inputs:
-            wait:
-            logs:
-            job_name:
-        """
+        """Placeholder docstring"""
         if inputs:
             self._validate_input_channels(inputs)
 
         super(AlgorithmEstimator, self).fit(inputs, wait, logs, job_name)
 
     def _validate_input_channels(self, channels):
-        """
-        Args:
-            channels:
-        """
+        """Placeholder docstring"""
         train_spec = self.algorithm_spec["TrainingSpecification"]
         algorithm_name = self.algorithm_spec["AlgorithmName"]
         training_channels = {c["Name"]: c for c in train_spec["TrainingChannels"]}
@@ -456,11 +440,7 @@ class AlgorithmEstimator(EstimatorBase):
                 raise ValueError("Required input channel: %s Was not provided." % (name))
 
     def _validate_and_cast_hyperparameter(self, name, v):
-        """
-        Args:
-            name:
-            v:
-        """
+        """Placeholder docstring"""
         algorithm_name = self.algorithm_spec["AlgorithmName"]
 
         if name not in self.hyperparameter_definitions:
@@ -484,10 +464,10 @@ class AlgorithmEstimator(EstimatorBase):
         # Check if all the required hyperparameters are set. If there is a default value
         # for one, set it.
         for name, definition in self.hyperparameter_definitions.items():
-            if name not in self.hyperparam_dict:
+            if name not in self._hyperparameters:
                 spec = definition["spec"]
                 if "DefaultValue" in spec:
-                    self.hyperparam_dict[name] = spec["DefaultValue"]
+                    self._hyperparameters[name] = spec["DefaultValue"]
                 elif "IsRequired" in spec and spec["IsRequired"]:
                     raise ValueError("Required hyperparameter: %s is not set" % name)
 
@@ -514,11 +494,7 @@ class AlgorithmEstimator(EstimatorBase):
         return definitions
 
     def _hyperparameter_range_and_class(self, parameter_type, hyperparameter):
-        """
-        Args:
-            parameter_type:
-            hyperparameter:
-        """
+        """Placeholder docstring."""
         if parameter_type in self._hyperpameters_with_range:
             range_name = parameter_type + "ParameterRangeSpecification"
 
@@ -559,10 +535,7 @@ class AlgorithmEstimator(EstimatorBase):
         return parameter_class, parameter_range
 
     def _algorithm_training_input_modes(self, training_channels):
-        """
-        Args:
-            training_channels:
-        """
+        """Placeholder docstring"""
         current_input_modes = {"File", "Pipe"}
         for channel in training_channels:
             supported_input_modes = set(channel["SupportedInputModes"])
@@ -572,8 +545,7 @@ class AlgorithmEstimator(EstimatorBase):
 
     @classmethod
     def _prepare_init_params_from_job_description(cls, job_details, model_channel_name=None):
-        """Convert the job description to init params that can be handled by the
-        class constructor
+        """Convert the job description to init params that can be handled by the class constructor.
 
         Args:
             job_details (dict): the returned job details from a DescribeTrainingJob

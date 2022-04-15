@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -19,8 +19,10 @@ import re
 import shutil
 import tempfile
 from collections import namedtuple
+from typing import Optional
 
 import sagemaker.image_uris
+from sagemaker.session_settings import SessionSettings
 import sagemaker.utils
 
 from sagemaker.deprecations import renamed_warning
@@ -49,6 +51,8 @@ PARAMETER_SERVER_MULTI_GPU_WARNING = (
 )
 
 DEBUGGER_UNSUPPORTED_REGIONS = ("us-iso-east-1",)
+PROFILER_UNSUPPORTED_REGIONS = ("us-iso-east-1",)
+
 SINGLE_GPU_INSTANCE_TYPES = ("ml.p2.xlarge", "ml.p3.2xlarge")
 SM_DATAPARALLEL_SUPPORTED_INSTANCE_TYPES = (
     "ml.p3.16xlarge",
@@ -57,14 +61,46 @@ SM_DATAPARALLEL_SUPPORTED_INSTANCE_TYPES = (
     "local_gpu",
 )
 SM_DATAPARALLEL_SUPPORTED_FRAMEWORK_VERSIONS = {
-    "tensorflow": ["2.3.0", "2.3.1"],
-    "pytorch": ["1.6.0"],
+    "tensorflow": [
+        "2.3",
+        "2.3.1",
+        "2.3.2",
+        "2.4",
+        "2.4.1",
+        "2.4.3",
+        "2.5",
+        "2.5.0",
+        "2.5.1",
+        "2.6",
+        "2.6.0",
+        "2.6.2",
+        "2.6.3",
+        "2.7",
+        "2.7.1",
+        "2.8",
+        "2.8.0",
+    ],
+    "pytorch": [
+        "1.6",
+        "1.6.0",
+        "1.7",
+        "1.7.1",
+        "1.8",
+        "1.8.0",
+        "1.8.1",
+        "1.9",
+        "1.9.0",
+        "1.9.1",
+        "1.10",
+        "1.10.0",
+    ],
 }
 SMDISTRIBUTED_SUPPORTED_STRATEGIES = ["dataparallel", "modelparallel"]
 
 
 def validate_source_dir(script, directory):
-    """Validate that the source directory exists and it contains the user script
+    """Validate that the source directory exists and it contains the user script.
+
     Args:
         script (str): Script filename.
         directory (str): Directory containing the source file.
@@ -136,10 +172,17 @@ def validate_mp_config(config):
     validate_in("placement_strategy", ["spread", "cluster"])
     validate_in("optimize", ["speed", "memory"])
 
-    for key in ["microbatches", "partitions"]:
+    for key in ["microbatches", "partitions", "active_microbatches"]:
         validate_positive(key)
 
-    for key in ["auto_partition", "contiguous", "load_partition", "horovod", "ddp"]:
+    for key in [
+        "auto_partition",
+        "contiguous",
+        "load_partition",
+        "horovod",
+        "ddp",
+        "deterministic_server",
+    ]:
         validate_bool(key)
 
     if "partition_file" in config and not isinstance(config.get("partition_file"), str):
@@ -180,17 +223,19 @@ def tar_and_upload_dir(
     dependencies=None,
     kms_key=None,
     s3_resource=None,
+    settings: Optional[SessionSettings] = None,
 ):
-    """Package source files and upload a compress tar file to S3. The S3
-    location will be ``s3://<bucket>/s3_key_prefix/sourcedir.tar.gz``.
+    """Package source files and upload a compress tar file to S3.
+
+    The S3 location will be ``s3://<bucket>/s3_key_prefix/sourcedir.tar.gz``.
     If directory is an S3 URI, an UploadedCode object will be returned, but
     nothing will be uploaded to S3 (this allow reuse of code already in S3).
     If directory is None, the script will be added to the archive at
-    ``./<basename of script>``.
-    If directory is not None, the (recursive) contents of the directory will
-    be added to the archive. directory is treated as the base path of the
-    archive, and the script name is assumed to be a filename or relative path
+    ``./<basename of script>``. If directory is not None, the (recursive) contents
+    of the directory will be added to the archive. directory is treated as the base
+    path of the archive, and the script name is assumed to be a filename or relative path
     inside the directory.
+
     Args:
         session (boto3.Session): Boto session used to access S3.
         bucket (str): S3 bucket to which the compressed file is uploaded.
@@ -206,6 +251,9 @@ def tar_and_upload_dir(
         s3_resource (boto3.resource("s3")): Optional. Pre-instantiated Boto3 Resource
             for S3 connections, can be used to customize the configuration,
             e.g. set the endpoint URL (default: None).
+        settings (sagemaker.session_settings.SessionSettings): Optional. The settings
+            of the SageMaker ``Session``, can be used to override the default encryption
+            behavior (default: None).
     Returns:
         sagemaker.fw_utils.UserCode: An object with the S3 bucket and key (S3 prefix) and
             script name.
@@ -217,6 +265,7 @@ def tar_and_upload_dir(
     dependencies = dependencies or []
     key = "%s/sourcedir.tar.gz" % s3_key_prefix
     tmp = tempfile.mkdtemp()
+    encrypt_artifact = True if settings is None else settings.encrypt_repacked_artifacts
 
     try:
         source_files = _list_files_to_compress(script, directory) + dependencies
@@ -226,6 +275,10 @@ def tar_and_upload_dir(
 
         if kms_key:
             extra_args = {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": kms_key}
+        elif encrypt_artifact:
+            # encrypt the tarball at rest in S3 with the default AWS managed KMS key for S3
+            # see https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html#API_PutObject_RequestSyntax
+            extra_args = {"ServerSideEncryption": "aws:kms"}
         else:
             extra_args = None
 
@@ -242,11 +295,7 @@ def tar_and_upload_dir(
 
 
 def _list_files_to_compress(script, directory):
-    """
-    Args:
-        script:
-        directory:
-    """
+    """Placeholder docstring"""
     if directory is None:
         return [script]
 
@@ -288,9 +337,11 @@ def framework_name_from_image(image_uri):
     # We must support both the legacy and current image name format.
     name_pattern = re.compile(
         r"""^(?:sagemaker(?:-rl)?-)?
-        (tensorflow|mxnet|chainer|pytorch|scikit-learn|xgboost)(?:-)?
+        (tensorflow|mxnet|chainer|pytorch|scikit-learn|xgboost
+        |huggingface-tensorflow|huggingface-pytorch
+        |huggingface-tensorflow-trcomp|huggingface-pytorch-trcomp)(?:-)?
         (scriptmode|training)?
-        :(.*)-(.*?)-(py2|py3[67]?)$""",
+        :(.*)-(.*?)-(py2|py3\d*)(?:.*)$""",
         re.VERBOSE,
     )
     name_match = name_pattern.match(sagemaker_match.group(9))
@@ -321,20 +372,23 @@ def framework_version_from_tag(image_tag):
     Returns:
         str: The framework version.
     """
-    tag_pattern = re.compile("^(.*)-(cpu|gpu)-(py2|py3[67]?)$")
+    tag_pattern = re.compile(r"^(.*)-(cpu|gpu)-(py2|py3\d*)$")
     tag_match = tag_pattern.match(image_tag)
     return None if tag_match is None else tag_match.group(1)
 
 
 def model_code_key_prefix(code_location_key_prefix, model_name, image):
-    """Returns the s3 key prefix for uploading code during model deployment
+    """Returns the s3 key prefix for uploading code during model deployment.
+
     The location returned is a potential concatenation of 2 parts
         1. code_location_key_prefix if it exists
         2. model_name or a name derived from the image
+
     Args:
         code_location_key_prefix (str): the s3 key prefix from code_location
         model_name (str): the name of the model
         image (str): the image from which a default name can be extracted
+
     Returns:
         str: the key prefix to be used in uploading code
     """
@@ -343,7 +397,9 @@ def model_code_key_prefix(code_location_key_prefix, model_name, image):
 
 
 def warn_if_parameter_server_with_multi_gpu(training_instance_type, distribution):
-    """Warn the user that training will not fully leverage all the GPU
+    """Warn the user about training when it doesn't leverage all the GPU cores.
+
+    Warn the user that training will not fully leverage all the GPU
     cores if parameter server is enabled and a multi-GPU instance is selected.
     Distributed training with the default parameter server setup doesn't
     support multi-GPU instances.
@@ -520,7 +576,7 @@ def _validate_smdataparallel_args(
         if "py3" not in py_version:
             err_msg += (
                 f"Provided py_version {py_version} is not supported by smdataparallel.\n"
-                "Please specify py_version=py3"
+                "Please specify py_version>=py3"
             )
 
     if err_msg:
@@ -528,11 +584,7 @@ def _validate_smdataparallel_args(
 
 
 def python_deprecation_warning(framework, latest_supported_version):
-    """
-    Args:
-        framework:
-        latest_supported_version:
-    """
+    """Placeholder docstring"""
     return PYTHON_2_DEPRECATION_WARNING.format(
         framework=framework, latest_supported_version=latest_supported_version
     )
@@ -549,6 +601,19 @@ def _region_supports_debugger(region_name):
 
     """
     return region_name.lower() not in DEBUGGER_UNSUPPORTED_REGIONS
+
+
+def _region_supports_profiler(region_name):
+    """Returns bool indicating whether region supports Amazon SageMaker Debugger profiling feature.
+
+    Args:
+        region_name (str): Name of the region to check against.
+
+    Returns:
+        bool: Whether or not the region supports Amazon SageMaker Debugger profiling feature.
+
+    """
+    return region_name.lower() not in PROFILER_UNSUPPORTED_REGIONS
 
 
 def validate_version_or_image_args(framework_version, py_version, image_uri):

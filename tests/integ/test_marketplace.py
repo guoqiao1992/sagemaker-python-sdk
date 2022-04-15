@@ -1,4 +1,4 @@
-# Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -24,8 +24,7 @@ import tests.integ
 from sagemaker import AlgorithmEstimator, ModelPackage
 from sagemaker.serializers import CSVSerializer
 from sagemaker.tuner import IntegerParameter, HyperparameterTuner
-from sagemaker.utils import sagemaker_timestamp
-from sagemaker.utils import _aws_partition
+from sagemaker.utils import sagemaker_timestamp, _aws_partition, unique_name_from_base
 from tests.integ import DATA_DIR
 from tests.integ.timeout import timeout, timeout_and_delete_endpoint_by_name
 from tests.integ.marketplace_utils import REGION_ACCOUNT_MAP
@@ -51,7 +50,7 @@ MODEL_PACKAGE_ARN = (
 )
 
 
-@pytest.mark.canary_quick
+@pytest.mark.release
 @pytest.mark.skipif(
     tests.integ.test_region() in tests.integ.NO_MARKET_PLACE_REGIONS,
     reason="Marketplace is not available in {}".format(tests.integ.test_region()),
@@ -117,7 +116,7 @@ def test_marketplace_attach(sagemaker_session, cpu_instance_type):
             instance_count=1,
             instance_type=cpu_instance_type,
             sagemaker_session=sagemaker_session,
-            base_job_name="test-marketplace",
+            base_job_name=unique_name_from_base("test-marketplace"),
         )
 
         train_input = mktplace.sagemaker_session.upload_data(
@@ -150,7 +149,7 @@ def test_marketplace_attach(sagemaker_session, cpu_instance_type):
         print(predictor.predict(test_x.values).decode("utf-8"))
 
 
-@pytest.mark.canary_quick
+@pytest.mark.release
 @pytest.mark.skipif(
     tests.integ.test_region() in tests.integ.NO_MARKET_PLACE_REGIONS,
     reason="Marketplace is not available in {}".format(tests.integ.test_region()),
@@ -205,7 +204,7 @@ def test_marketplace_tuning_job(sagemaker_session, cpu_instance_type):
         instance_count=1,
         instance_type=cpu_instance_type,
         sagemaker_session=sagemaker_session,
-        base_job_name="test-marketplace",
+        base_job_name=unique_name_from_base("test-marketplace"),
     )
 
     train_input = mktplace.sagemaker_session.upload_data(
@@ -218,7 +217,7 @@ def test_marketplace_tuning_job(sagemaker_session, cpu_instance_type):
 
     tuner = HyperparameterTuner(
         estimator=mktplace,
-        base_tuning_job_name="byo",
+        base_tuning_job_name=unique_name_from_base("byo"),
         objective_metric_name="validation:accuracy",
         hyperparameter_ranges=hyperparameter_ranges,
         max_jobs=2,
@@ -248,7 +247,7 @@ def test_marketplace_transform_job(sagemaker_session, cpu_instance_type):
         instance_count=1,
         instance_type=cpu_instance_type,
         sagemaker_session=sagemaker_session,
-        base_job_name="test-marketplace",
+        base_job_name=unique_name_from_base("test-marketplace"),
     )
 
     train_input = algo.sagemaker_session.upload_data(

@@ -1,4 +1,4 @@
-# Copyright 2019-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -15,12 +15,12 @@ from __future__ import absolute_import
 import os
 
 import pytest
-import tests.integ
-from sagemaker import AutoML, CandidateEstimator, AutoMLInput
-
 from botocore.exceptions import ClientError
+
+import tests.integ
+from sagemaker import AutoML, AutoMLInput, CandidateEstimator
 from sagemaker.utils import unique_name_from_base
-from tests.integ import DATA_DIR, AUTO_ML_DEFAULT_TIMEMOUT_MINUTES, auto_ml_utils
+from tests.integ import AUTO_ML_DEFAULT_TIMEMOUT_MINUTES, DATA_DIR, auto_ml_utils
 from tests.integ.timeout import timeout
 
 ROLE = "SageMakerRole"
@@ -47,11 +47,12 @@ EXPECTED_DEFAULT_JOB_CONFIG = {
 }
 
 
+@pytest.mark.slow_test
 @pytest.mark.skipif(
     tests.integ.test_region() in tests.integ.NO_AUTO_ML_REGIONS,
     reason="AutoML is not supported in the region yet.",
 )
-@pytest.mark.canary_quick
+@pytest.mark.release
 def test_auto_ml_fit(sagemaker_session):
     auto_ml = AutoML(
         role=ROLE,
@@ -168,6 +169,7 @@ def test_auto_ml_describe_auto_ml_job(sagemaker_session):
                 }
             },
             "TargetAttributeName": TARGET_ATTRIBUTE_NAME,
+            "ContentType": "text/csv;header=present",
         }
     ]
     expected_default_output_config = {
@@ -204,6 +206,7 @@ def test_auto_ml_attach(sagemaker_session):
                 }
             },
             "TargetAttributeName": TARGET_ATTRIBUTE_NAME,
+            "ContentType": "text/csv;header=present",
         }
     ]
     expected_default_output_config = {
@@ -259,7 +262,7 @@ def test_best_candidate(sagemaker_session):
     tests.integ.test_region() in tests.integ.NO_AUTO_ML_REGIONS,
     reason="AutoML is not supported in the region yet.",
 )
-@pytest.mark.canary_quick
+@pytest.mark.release
 def test_deploy_best_candidate(sagemaker_session, cpu_instance_type):
     auto_ml_utils.create_auto_ml_job_if_not_exist(sagemaker_session)
 

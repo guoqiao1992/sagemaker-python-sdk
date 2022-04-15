@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -30,6 +30,8 @@ from sagemaker.tuner import (
     create_transfer_learning_tuner,
     HyperparameterTuner,
 )
+from sagemaker.workflow.functions import JsonGet, Join
+from sagemaker.workflow.parameters import ParameterString, ParameterInteger
 
 from .tuner_test_utils import *  # noqa: F403
 
@@ -68,14 +70,36 @@ def tuner(estimator):
 
 
 def test_prepare_for_training(tuner):
-    static_hyperparameters = {"validated": 1, "another_one": 0}
+    hp1 = JsonGet(step_name="stepname", property_file="pf", json_path="jp")
+    hp2 = Join(on="/", values=["1", "2", ParameterString(name="ps", default_value="3")])
+
+    static_hyperparameters = {
+        "validated": 1,
+        "another_one": 0,
+        "hp1": hp1,
+        "hp2": hp2,
+    }
+
     tuner.estimator.set_hyperparameters(**static_hyperparameters)
     tuner._prepare_for_tuning()
 
     assert tuner._current_job_name.startswith(IMAGE_NAME)
-
-    assert len(tuner.static_hyperparameters) == 1
+    assert len(tuner.static_hyperparameters) == 3
     assert tuner.static_hyperparameters["another_one"] == "0"
+    assert tuner.static_hyperparameters["hp1"].expr == {
+        "Std:Join": {
+            "On": "",
+            "Values": [
+                {
+                    "Std:JsonGet": {
+                        "PropertyFile": {"Get": "Steps.stepname.PropertyFiles.pf"},
+                        "Path": "jp",
+                    },
+                },
+            ],
+        }
+    }
+    assert tuner.static_hyperparameters["hp2"] == hp2
 
 
 def test_prepare_for_tuning_with_amazon_estimator(tuner, sagemaker_session):
@@ -889,7 +913,7 @@ def test_deploy_optional_params(_get_best_training_job, best_estimator, tuner):
         wait=False,
         model_name=model_name,
         kms_key=kms_key,
-        **kwargs
+        **kwargs,
     )
 
     best_estimator.assert_called_with(training_job)
@@ -905,7 +929,7 @@ def test_deploy_optional_params(_get_best_training_job, best_estimator, tuner):
         model_name=model_name,
         kms_key=kms_key,
         data_capture_config=None,
-        **kwargs
+        **kwargs,
     )
 
 
@@ -1154,6 +1178,39 @@ def test_integer_parameter_ranges():
     assert ranges["MinValue"] == "1"
     assert ranges["MaxValue"] == "2"
     assert ranges["ScalingType"] == "Auto"
+
+
+def test_integer_parameter_ranges_with_pipeline_parameter():
+    min = ParameterInteger(name="p", default_value=2)
+    max = JsonGet(step_name="sn", property_file="pf", json_path="jp")
+    scale = ParameterString(name="scale", default_value="Auto")
+    int_param = IntegerParameter(min, max)
+    ranges = int_param.as_tuning_range("some")
+
+    assert len(ranges.keys()) == 4
+    assert ranges["Name"] == "some"
+    assert ranges["MinValue"].expr == {
+        "Std:Join": {
+            "On": "",
+            "Values": [
+                {"Get": "Parameters.p"},
+            ],
+        }
+    }
+    assert ranges["MaxValue"].expr == {
+        "Std:Join": {
+            "On": "",
+            "Values": [
+                {
+                    "Std:JsonGet": {
+                        "PropertyFile": {"Get": "Steps.sn.PropertyFiles.pf"},
+                        "Path": "jp",
+                    }
+                }
+            ],
+        }
+    }
+    assert ranges["ScalingType"] == scale
 
 
 def test_integer_parameter_scaling_type():

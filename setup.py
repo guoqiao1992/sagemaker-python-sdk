@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -16,7 +16,7 @@ from __future__ import absolute_import
 import os
 from glob import glob
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 
 def read(fname):
@@ -31,53 +31,45 @@ def read_version():
     return read("VERSION").strip()
 
 
+def read_requirements(filename):
+    """Reads requirements file which lists package dependencies.
+
+    Args:
+        filename: type(str) Relative file path of requirements.txt file
+
+    Returns:
+        list of dependencies extracted from file
+    """
+    with open(os.path.abspath(filename)) as fp:
+        deps = [line.strip() for line in fp.readlines()]
+    return deps
+
+
 # Declare minimal set for installation
 required_packages = [
-    "attrs",
-    "boto3>=1.16.32",
+    "attrs==20.3.0",
+    "boto3>=1.20.21",
     "google-pasta",
     "numpy>=1.9.0",
     "protobuf>=3.1",
     "protobuf3-to-dict>=0.1.5",
-    "smdebug_rulesconfig==1.0.0",
+    "smdebug_rulesconfig==1.0.1",
     "importlib-metadata>=1.4.0",
     "packaging>=20.0",
+    "pandas",
+    "pathos",
 ]
 
 # Specific use case dependencies
+# Keep format of *_requirements.txt to be tracked by dependabot
 extras = {
-    "analytics": ["pandas"],
-    "feature-store": ["pandas"],
-    "local": [
-        "urllib3>=1.21.1,<1.26,!=1.25.0,!=1.25.1",
-        "docker-compose>=1.25.2",
-        "PyYAML>=5.3, <6",  # PyYAML version has to match docker-compose requirements
-    ],
-    "scipy": ["scipy>=0.19.0"],
+    "local": read_requirements("requirements/extras/local_requirements.txt"),
+    "scipy": read_requirements("requirements/extras/scipy_requirements.txt"),
 }
 # Meta dependency groups
 extras["all"] = [item for group in extras.values() for item in group]
 # Tests specific dependencies (do not need to be included in 'all')
-extras["test"] = (
-    [
-        extras["all"],
-        "tox",
-        "flake8",
-        "pytest<6.1.0",
-        "pytest-cov",
-        "pytest-rerunfailures",
-        "pytest-xdist",
-        "mock",
-        "contextlib2",
-        "awslogs",
-        "black",
-        "stopit==1.1.2",
-        "apache-airflow==1.10.11",
-        "fabric>=2.0",
-        "requests>=2.20.0, <3",
-        "sagemaker-experiments",
-    ],
-)
+extras["test"] = (extras["all"] + read_requirements("requirements/extras/test_requirements.txt"),)
 
 setup(
     name="sagemaker",
@@ -101,6 +93,7 @@ setup(
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
     ],
     install_requires=required_packages,
     extras_require=extras,

@@ -17,7 +17,10 @@ import datetime
 import logging
 import time
 
+import pytest
+
 from sagemaker.lineage import artifact
+from tests.integ.sagemaker.lineage.helpers import retry
 
 
 def test_create_delete(artifact_obj):
@@ -77,16 +80,67 @@ def test_list(artifact_objs, sagemaker_session):
     assert artifact_names
 
 
+def test_list_by_type(artifact_objs, sagemaker_session):
+    slack = datetime.timedelta(minutes=1)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    expected_name = list(
+        filter(lambda x: x.artifact_type == "SDKIntegrationTestType2", artifact_objs)
+    )[0].artifact_name
+    artifact_names = [art.artifact_name for art in artifact_objs]
+
+    artifact_names_listed = [
+        artifact_listed.artifact_name
+        for artifact_listed in artifact.Artifact.list(
+            created_after=now - slack,
+            artifact_type="SDKIntegrationTestType2",
+            sagemaker_session=sagemaker_session,
+        )
+        if artifact_listed.artifact_name in artifact_names
+    ]
+
+    assert len(artifact_names_listed) == 1
+    assert artifact_names_listed[0] == expected_name
+
+
+@pytest.mark.skip("data inconsistency P61661075")
+def test_get_artifact(static_dataset_artifact):
+    s3_uri = static_dataset_artifact.source.source_uri
+    expected_artifact = static_dataset_artifact.s3_uri_artifacts(s3_uri=s3_uri)
+    for ar in expected_artifact["ArtifactSummaries"]:
+        assert ar.get("Source")["SourceUri"] == s3_uri
+
+
 def test_downstream_trials(trial_associated_artifact, trial_obj, sagemaker_session):
-    # wait for TC to index
-    time.sleep(3)
+    # allow trial components to index, 30 seconds max
+    def validate():
+        for i in range(3):
+            time.sleep(10)
+            trials = trial_associated_artifact.downstream_trials(
+                sagemaker_session=sagemaker_session
+            )
+            logging.info(f"Found {len(trials)} downstream trials.")
+            if len(trials) > 0:
+                break
 
-    trials = trial_associated_artifact.downstream_trials(sagemaker_session=sagemaker_session)
+        assert len(trials) == 1
+        assert trial_obj.trial_name in trials
 
+    retry(validate, num_attempts=3)
+
+
+def test_downstream_trials_v2(trial_associated_artifact, trial_obj, sagemaker_session):
+    trials = trial_associated_artifact.downstream_trials_v2()
     assert len(trials) == 1
     assert trial_obj.trial_name in trials
 
 
+def test_upstream_trials(upstream_trial_associated_artifact, trial_obj, sagemaker_session):
+    trials = upstream_trial_associated_artifact.upstream_trials()
+    assert len(trials) == 1
+    assert trial_obj.trial_name in trials
+
+
+@pytest.mark.timeout(30)
 def test_tag(artifact_obj, sagemaker_session):
     tag = {"Key": "foo", "Value": "bar"}
     artifact_obj.set_tag(tag)
@@ -97,10 +151,14 @@ def test_tag(artifact_obj, sagemaker_session):
         )["Tags"]
         if actual_tags:
             break
-    assert len(actual_tags) == 1
+        time.sleep(5)
+    # When sagemaker-client-config endpoint-url is passed as argument to hit some endpoints,
+    # length of actual tags will be greater than 1
+    assert len(actual_tags) > 0
     assert actual_tags[0] == tag
 
 
+@pytest.mark.timeout(30)
 def test_tags(artifact_obj, sagemaker_session):
     tags = [{"Key": "foo1", "Value": "bar1"}]
     artifact_obj.set_tags(tags)
@@ -111,5 +169,8 @@ def test_tags(artifact_obj, sagemaker_session):
         )["Tags"]
         if actual_tags:
             break
-    assert len(actual_tags) == 1
-    assert actual_tags == tags
+        time.sleep(5)
+    # When sagemaker-client-config endpoint-url is passed as argument to hit some endpoints,
+    # length of actual tags will be greater than 1
+    assert len(actual_tags) > 0
+    assert [actual_tags[-1]] == tags

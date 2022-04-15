@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -86,7 +86,15 @@ def test_ray_tf(ray_tensorflow_version):
 
 
 def _expected_ray_tf_uri(ray_tf_version, processor):
-    if Version(ray_tf_version) > Version("0.6.5"):
+    if Version(ray_tf_version) > Version("1.0.0"):
+        return expected_uris.framework_uri(
+            "sagemaker-rl-ray-container",
+            _version_for_tag("ray", ray_tf_version, "tf", True),
+            RL_ACCOUNT,
+            py_version="py37",
+            processor=processor,
+        )
+    elif Version(ray_tf_version) > Version("0.6.5"):
         return expected_uris.framework_uri(
             "sagemaker-rl-ray-container",
             _version_for_tag("ray", ray_tf_version, "tf", True),

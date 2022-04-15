@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -28,7 +28,7 @@ from tests.integ import timeout
 horovod_dir = os.path.join(os.path.dirname(__file__), "..", "data", "horovod")
 
 
-@pytest.mark.canary_quick
+@pytest.mark.release
 def test_hvd_cpu(
     sagemaker_session,
     tensorflow_training_latest_version,
@@ -45,21 +45,24 @@ def test_hvd_cpu(
     )
 
 
-@pytest.mark.canary_quick
+@pytest.mark.release
 @pytest.mark.skipif(
-    integ.test_region() in integ.TRAINING_NO_P2_REGIONS, reason="no ml.p2 instances in this region"
+    integ.test_region() in integ.TRAINING_NO_P2_REGIONS
+    and integ.test_region() in integ.TRAINING_NO_P3_REGIONS,
+    reason="no ml.p2 or ml.p3 instances in this region",
 )
 def test_hvd_gpu(
     sagemaker_session,
     tensorflow_training_latest_version,
     tensorflow_training_latest_py_version,
+    gpu_instance_type,
     tmpdir,
 ):
     _create_and_fit_estimator(
         sagemaker_session,
         tensorflow_training_latest_version,
         tensorflow_training_latest_py_version,
-        "ml.p2.xlarge",
+        gpu_instance_type,
         tmpdir,
     )
 
@@ -91,6 +94,7 @@ def _create_and_fit_estimator(sagemaker_session, tf_version, py_version, instanc
         py_version=py_version,
         framework_version=tf_version,
         distribution={"mpi": {"enabled": True}},
+        disable_profiler=True,
     )
 
     with timeout.timeout(minutes=integ.TRAINING_DEFAULT_TIMEOUT_MINUTES):

@@ -1,4 +1,4 @@
-# Copyright 2017-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -23,8 +23,9 @@ from sagemaker.tensorflow import TensorFlow
 
 
 def prepare_framework(estimator, s3_operations):
-    """Prepare S3 operations (specify where to upload `source_dir` ) and
-    environment variables related to framework.
+    """Prepare S3 operations and environment variables related to framework.
+
+    S3 operations specify where to upload `source_dir`.
 
     Args:
         estimator (sagemaker.estimator.Estimator): The framework estimator to
@@ -69,8 +70,9 @@ def prepare_framework(estimator, s3_operations):
 
 
 def prepare_amazon_algorithm_estimator(estimator, inputs, mini_batch_size=None):
-    """Set up amazon algorithm estimator, adding the required `feature_dim`
-    hyperparameter from training data.
+    """Sets up amazon algorithm estimator.
+
+    This is done by adding the required `feature_dim` hyperparameter from training data.
 
     Args:
         estimator (sagemaker.amazon.amazon_estimator.AmazonAlgorithmEstimatorBase): An estimator
@@ -182,7 +184,9 @@ def training_base_config(estimator, inputs=None, job_name=None, mini_batch_size=
         train_config["VpcConfig"] = job_config["vpc_config"]
 
     if estimator.use_spot_instances:
-        train_config["EnableManagedSpotTraining"] = True
+        # estimator.use_spot_instances may be a Pipeline ParameterBoolean object
+        # which is parsed during the Pipeline execution runtime
+        train_config["EnableManagedSpotTraining"] = estimator.use_spot_instances
 
     if estimator.hyperparameters() is not None:
         hyperparameters = {str(k): str(v) for (k, v) in estimator.hyperparameters().items()}
@@ -193,6 +197,11 @@ def training_base_config(estimator, inputs=None, job_name=None, mini_batch_size=
     if s3_operations:
         train_config["S3Operations"] = s3_operations
 
+    if (estimator.checkpoint_local_path is not None) & (estimator.checkpoint_s3_uri is not None):
+        train_config["CheckpointConfig"] = {
+            "LocalPath": estimator.checkpoint_local_path,
+            "S3Uri": estimator.checkpoint_s3_uri,
+        }
     return train_config
 
 
@@ -386,9 +395,9 @@ def _extract_training_config_from_estimator(tuner, inputs, include_cls_metadata,
 def _extract_training_config_list_from_estimator_dict(
     tuner, inputs, include_cls_metadata, mini_batch_size
 ):
-    """
-    Extract a list of training job configs from a HyperparameterTuner that uses the
-    ``estimator_dict`` field
+    """Extracts a list of training job configs from a Hyperparameter Tuner.
+
+    It uses the ``estimator_dict`` field.
     """
     estimator_names = sorted(tuner.estimator_dict.keys())
     tuner._validate_dict_argument(name="inputs", value=inputs, allowed_keys=estimator_names)
@@ -508,7 +517,9 @@ def update_estimator_from_task(estimator, task_id, task_type):
 
 
 def prepare_framework_container_def(model, instance_type, s3_operations):
-    """Prepare the framework model container information. Specify related S3
+    """This prepares the framework model container information and specifies related S3 operations.
+
+    Prepare the framework model container information. Specify related S3
     operations for Airflow to perform. (Upload `source_dir` )
 
     Args:
@@ -545,7 +556,7 @@ def prepare_framework_container_def(model, instance_type, s3_operations):
             ]
 
     deploy_env = dict(model.env)
-    deploy_env.update(model._framework_env_vars())
+    deploy_env.update(model._script_mode_env_vars())
 
     try:
         if model.model_server_workers:
@@ -1098,9 +1109,17 @@ def processing_config(
             :class:`~sagemaker.processing.ProcessingOutput` objects (default: None).
         job_name (str): Processing job name. If not specified, the processor generates
             a default job name, based on the base job name and current timestamp.
-        experiment_config (dict[str, str]): Experiment management configuration.
-            Dictionary contains three optional keys:
-            'ExperimentName', 'TrialName', and 'TrialComponentDisplayName'.
+            experiment_config (dict[str, str]): Experiment management configuration.
+                Optionally, the dict can contain three keys:
+                'ExperimentName', 'TrialName', and 'TrialComponentDisplayName'.
+                The behavior of setting these keys is as follows:
+                * If `ExperimentName` is supplied but `TrialName` is not a Trial will be
+                automatically created and the job's Trial Component associated with the Trial.
+                * If `TrialName` is supplied and the Trial already exists the job's Trial Component
+                will be associated with the Trial.
+                * If both `ExperimentName` and `TrialName` are not supplied the trial component
+                will be unassociated.
+                * `TrialComponentDisplayName` is used for display in Studio.
         container_arguments ([str]): The arguments for a container used to run a processing job.
         container_entrypoint ([str]): The entrypoint for a container used to run a processing job.
         kms_key_id (str): The AWS Key Management Service (AWS KMS) key that Amazon SageMaker

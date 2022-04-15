@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -38,8 +38,7 @@ ALL_METRIC_CONFIGS = [
 
 
 class FrameworkProfile:
-    """
-    Sets up the profiling configuration for framework metrics.
+    """Sets up the profiling configuration for framework metrics.
 
     Validates user inputs and fills in default values if no input is provided.
     There are three main profiling options to choose from:

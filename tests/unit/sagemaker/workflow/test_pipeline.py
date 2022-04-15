@@ -1,4 +1,4 @@
-# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -21,8 +21,15 @@ from botocore.exceptions import ClientError
 
 from mock import Mock
 
+from sagemaker import s3
+from sagemaker.workflow.execution_variables import ExecutionVariables
 from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.pipeline import Pipeline
+from sagemaker.workflow.parallelism_config import ParallelismConfiguration
+from sagemaker.workflow.pipeline_experiment_config import (
+    PipelineExperimentConfig,
+    PipelineExperimentConfigProperties,
+)
 from sagemaker.workflow.properties import Properties
 from sagemaker.workflow.steps import (
     Step,
@@ -32,9 +39,9 @@ from tests.unit.sagemaker.workflow.helpers import ordered
 
 
 class CustomStep(Step):
-    def __init__(self, name, input_data):
+    def __init__(self, name, input_data, display_name=None, description=None):
         self.input_data = input_data
-        super(CustomStep, self).__init__(name, StepTypeEnum.TRAINING)
+        super(CustomStep, self).__init__(name, display_name, description, StepTypeEnum.TRAINING)
 
         path = f"Steps.{name}"
         prop = Properties(path=path)
@@ -57,7 +64,9 @@ def role_arn():
 
 @pytest.fixture
 def sagemaker_session_mock():
-    return Mock()
+    session_mock = Mock()
+    session_mock.default_bucket = Mock(name="default_bucket", return_value="s3_bucket")
+    return session_mock
 
 
 def test_pipeline_create(sagemaker_session_mock, role_arn):
@@ -70,6 +79,47 @@ def test_pipeline_create(sagemaker_session_mock, role_arn):
     pipeline.create(role_arn=role_arn)
     assert sagemaker_session_mock.sagemaker_client.create_pipeline.called_with(
         PipelineName="MyPipeline", PipelineDefinition=pipeline.definition(), RoleArn=role_arn
+    )
+
+
+def test_pipeline_create_with_parallelism_config(sagemaker_session_mock, role_arn):
+    pipeline = Pipeline(
+        name="MyPipeline",
+        parameters=[],
+        steps=[],
+        pipeline_experiment_config=ParallelismConfiguration(max_parallel_execution_steps=10),
+        sagemaker_session=sagemaker_session_mock,
+    )
+    pipeline.create(role_arn=role_arn)
+    assert sagemaker_session_mock.sagemaker_client.create_pipeline.called_with(
+        PipelineName="MyPipeline",
+        PipelineDefinition=pipeline.definition(),
+        RoleArn=role_arn,
+        ParallelismConfiguration={"MaxParallelExecutionSteps": 10},
+    )
+
+
+def test_large_pipeline_create(sagemaker_session_mock, role_arn):
+    parameter = ParameterString("MyStr")
+    pipeline = Pipeline(
+        name="MyPipeline",
+        parameters=[parameter],
+        steps=[CustomStep(name="MyStep", input_data=parameter)] * 2000,
+        sagemaker_session=sagemaker_session_mock,
+    )
+
+    s3.S3Uploader.upload_string_as_file_body = Mock()
+
+    pipeline.create(role_arn=role_arn)
+
+    assert s3.S3Uploader.upload_string_as_file_body.called_with(
+        body=pipeline.definition(), s3_uri="s3://s3_bucket/MyPipeline"
+    )
+
+    assert sagemaker_session_mock.sagemaker_client.create_pipeline.called_with(
+        PipelineName="MyPipeline",
+        PipelineDefinitionS3Location={"Bucket": "s3_bucket", "ObjectKey": "MyPipeline"},
+        RoleArn=role_arn,
     )
 
 
@@ -86,6 +136,47 @@ def test_pipeline_update(sagemaker_session_mock, role_arn):
     )
 
 
+def test_pipeline_update_with_parallelism_config(sagemaker_session_mock, role_arn):
+    pipeline = Pipeline(
+        name="MyPipeline",
+        parameters=[],
+        steps=[],
+        pipeline_experiment_config=ParallelismConfiguration(max_parallel_execution_steps=10),
+        sagemaker_session=sagemaker_session_mock,
+    )
+    pipeline.create(role_arn=role_arn)
+    assert sagemaker_session_mock.sagemaker_client.update_pipeline.called_with(
+        PipelineName="MyPipeline",
+        PipelineDefinition=pipeline.definition(),
+        RoleArn=role_arn,
+        ParallelismConfiguration={"MaxParallelExecutionSteps": 10},
+    )
+
+
+def test_large_pipeline_update(sagemaker_session_mock, role_arn):
+    parameter = ParameterString("MyStr")
+    pipeline = Pipeline(
+        name="MyPipeline",
+        parameters=[parameter],
+        steps=[CustomStep(name="MyStep", input_data=parameter)] * 2000,
+        sagemaker_session=sagemaker_session_mock,
+    )
+
+    s3.S3Uploader.upload_string_as_file_body = Mock()
+
+    pipeline.create(role_arn=role_arn)
+
+    assert s3.S3Uploader.upload_string_as_file_body.called_with(
+        body=pipeline.definition(), s3_uri="s3://s3_bucket/MyPipeline"
+    )
+
+    assert sagemaker_session_mock.sagemaker_client.update_pipeline.called_with(
+        PipelineName="MyPipeline",
+        PipelineDefinitionS3Location={"Bucket": "s3_bucket", "ObjectKey": "MyPipeline"},
+        RoleArn=role_arn,
+    )
+
+
 def test_pipeline_upsert(sagemaker_session_mock, role_arn):
     sagemaker_session_mock.side_effect = [
         ClientError(
@@ -97,20 +188,36 @@ def test_pipeline_upsert(sagemaker_session_mock, role_arn):
                 }
             },
         ),
+        {"PipelineArn": "mock_pipeline_arn"},
+        [{"Key": "dummy", "Value": "dummy_tag"}],
         {},
     ]
+
     pipeline = Pipeline(
         name="MyPipeline",
         parameters=[],
         steps=[],
         sagemaker_session=sagemaker_session_mock,
     )
-    pipeline.update(role_arn=role_arn)
+
+    tags = [
+        {"Key": "foo", "Value": "abc"},
+        {"Key": "bar", "Value": "xyz"},
+    ]
+    pipeline.upsert(role_arn=role_arn, tags=tags)
     assert sagemaker_session_mock.sagemaker_client.create_pipeline.called_with(
         PipelineName="MyPipeline", PipelineDefinition=pipeline.definition(), RoleArn=role_arn
     )
     assert sagemaker_session_mock.sagemaker_client.update_pipeline.called_with(
         PipelineName="MyPipeline", PipelineDefinition=pipeline.definition(), RoleArn=role_arn
+    )
+    assert sagemaker_session_mock.sagemaker_client.list_tags.called_with(
+        ResourceArn="mock_pipeline_arn"
+    )
+
+    tags.append({"Key": "dummy", "Value": "dummy_tag"})
+    assert sagemaker_session_mock.sagemaker_client.add_tags.called_with(
+        ResourceArn="mock_pipeline_arn", Tags=tags
     )
 
 
@@ -154,6 +261,12 @@ def test_pipeline_start(sagemaker_session_mock):
     assert sagemaker_session_mock.start_pipeline_execution.called_with(
         PipelineName="MyPipeline",
     )
+
+    pipeline.start(execution_display_name="pipeline-execution")
+    assert sagemaker_session_mock.start_pipeline_execution.called_with(
+        PipelineName="MyPipeline", PipelineExecutionDisplayName="pipeline-execution"
+    )
+
     pipeline.start(parameters=dict(alpha="epsilon"))
     assert sagemaker_session_mock.start_pipeline_execution.called_with(
         PipelineName="MyPipeline", PipelineParameters=[{"Name": "alpha", "Value": "epsilon"}]
@@ -184,6 +297,10 @@ def test_pipeline_basic():
         "Version": "2020-12-01",
         "Metadata": {},
         "Parameters": [{"Name": "MyStr", "Type": "String"}],
+        "PipelineExperimentConfig": {
+            "ExperimentName": ExecutionVariables.PIPELINE_NAME,
+            "TrialName": ExecutionVariables.PIPELINE_EXECUTION_ID,
+        },
         "Steps": [{"Name": "MyStep", "Type": "Training", "Arguments": {"input_data": parameter}}],
     }
     assert ordered(json.loads(pipeline.definition())) == ordered(
@@ -191,6 +308,10 @@ def test_pipeline_basic():
             "Version": "2020-12-01",
             "Metadata": {},
             "Parameters": [{"Name": "MyStr", "Type": "String"}],
+            "PipelineExperimentConfig": {
+                "ExperimentName": {"Get": "Execution.PipelineName"},
+                "TrialName": {"Get": "Execution.PipelineExecutionId"},
+            },
             "Steps": [
                 {
                     "Name": "MyStep",
@@ -204,8 +325,15 @@ def test_pipeline_basic():
 
 def test_pipeline_two_step(sagemaker_session_mock):
     parameter = ParameterString("MyStr")
-    step1 = CustomStep(name="MyStep1", input_data=parameter)
-    step2 = CustomStep(name="MyStep2", input_data=step1.properties.S3Uri)
+    step1 = CustomStep(
+        name="MyStep1",
+        input_data=[
+            parameter,  # parameter reference
+            ExecutionVariables.PIPELINE_EXECUTION_ID,  # execution variable
+            PipelineExperimentConfigProperties.EXPERIMENT_NAME,  # experiment config property
+        ],
+    )
+    step2 = CustomStep(name="MyStep2", input_data=[step1.properties.S3Uri])  # step property
     pipeline = Pipeline(
         name="MyPipeline",
         parameters=[parameter],
@@ -216,12 +344,26 @@ def test_pipeline_two_step(sagemaker_session_mock):
         "Version": "2020-12-01",
         "Metadata": {},
         "Parameters": [{"Name": "MyStr", "Type": "String"}],
+        "PipelineExperimentConfig": {
+            "ExperimentName": ExecutionVariables.PIPELINE_NAME,
+            "TrialName": ExecutionVariables.PIPELINE_EXECUTION_ID,
+        },
         "Steps": [
-            {"Name": "MyStep1", "Type": "Training", "Arguments": {"input_data": parameter}},
+            {
+                "Name": "MyStep1",
+                "Type": "Training",
+                "Arguments": {
+                    "input_data": [
+                        parameter,
+                        ExecutionVariables.PIPELINE_EXECUTION_ID,
+                        PipelineExperimentConfigProperties.EXPERIMENT_NAME,
+                    ]
+                },
+            },
             {
                 "Name": "MyStep2",
                 "Type": "Training",
-                "Arguments": {"input_data": step1.properties.S3Uri},
+                "Arguments": {"input_data": [step1.properties.S3Uri]},
             },
         ],
     }
@@ -230,17 +372,75 @@ def test_pipeline_two_step(sagemaker_session_mock):
             "Version": "2020-12-01",
             "Metadata": {},
             "Parameters": [{"Name": "MyStr", "Type": "String"}],
+            "PipelineExperimentConfig": {
+                "ExperimentName": {"Get": "Execution.PipelineName"},
+                "TrialName": {"Get": "Execution.PipelineExecutionId"},
+            },
             "Steps": [
                 {
                     "Name": "MyStep1",
                     "Type": "Training",
-                    "Arguments": {"input_data": {"Get": "Parameters.MyStr"}},
+                    "Arguments": {
+                        "input_data": [
+                            {"Get": "Parameters.MyStr"},
+                            {"Get": "Execution.PipelineExecutionId"},
+                            {"Get": "PipelineExperimentConfig.ExperimentName"},
+                        ]
+                    },
                 },
                 {
                     "Name": "MyStep2",
                     "Type": "Training",
-                    "Arguments": {"input_data": {"Get": "Steps.MyStep1.S3Uri"}},
+                    "Arguments": {"input_data": [{"Get": "Steps.MyStep1.S3Uri"}]},
                 },
+            ],
+        }
+    )
+
+
+def test_pipeline_override_experiment_config():
+    pipeline = Pipeline(
+        name="MyPipeline",
+        pipeline_experiment_config=PipelineExperimentConfig("MyExperiment", "MyTrial"),
+        steps=[CustomStep(name="MyStep", input_data="input")],
+        sagemaker_session=sagemaker_session_mock,
+    )
+    assert ordered(json.loads(pipeline.definition())) == ordered(
+        {
+            "Version": "2020-12-01",
+            "Metadata": {},
+            "Parameters": [],
+            "PipelineExperimentConfig": {"ExperimentName": "MyExperiment", "TrialName": "MyTrial"},
+            "Steps": [
+                {
+                    "Name": "MyStep",
+                    "Type": "Training",
+                    "Arguments": {"input_data": "input"},
+                }
+            ],
+        }
+    )
+
+
+def test_pipeline_disable_experiment_config():
+    pipeline = Pipeline(
+        name="MyPipeline",
+        pipeline_experiment_config=None,
+        steps=[CustomStep(name="MyStep", input_data="input")],
+        sagemaker_session=sagemaker_session_mock,
+    )
+    assert ordered(json.loads(pipeline.definition())) == ordered(
+        {
+            "Version": "2020-12-01",
+            "Metadata": {},
+            "Parameters": [],
+            "PipelineExperimentConfig": None,
+            "Steps": [
+                {
+                    "Name": "MyStep",
+                    "Type": "Training",
+                    "Arguments": {"input_data": "input"},
+                }
             ],
         }
     )

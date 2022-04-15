@@ -1,4 +1,4 @@
-# Copyright 2019-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -53,7 +53,10 @@ ENVIRONMENT = {ENV_KEY_1: ENV_VALUE_1}
 TAG_KEY_1 = "tag_key_1"
 TAG_VALUE_1 = "tag_value_1"
 TAGS = [{"Key": TAG_KEY_1, "Value": TAG_VALUE_1}]
-NETWORK_CONFIG = NetworkConfig(enable_network_isolation=True)
+NETWORK_CONFIG = NetworkConfig(
+    enable_network_isolation=True,
+    encrypt_inter_container_traffic=True,
+)
 ENABLE_CLOUDWATCH_METRICS = True
 
 DEFAULT_BASELINING_MAX_RUNTIME_IN_SECONDS = 86400
@@ -81,7 +84,7 @@ CUSTOM_JSON_CONTENT_TYPES = ["application/jsontype1", "application/jsontype2"]
 
 INTEG_TEST_MONITORING_OUTPUT_BUCKET = "integ-test-monitoring-output-bucket"
 
-FIVE_MIN_CRON_EXPRESSION = "cron(0/5 * ? * * *)"
+HOURLY_CRON_EXPRESSION = "cron(0 * ? * * *)"
 
 
 @pytest.fixture(scope="module")
@@ -92,7 +95,11 @@ def predictor(sagemaker_session, tensorflow_inference_latest_version):
         key_prefix="tensorflow-serving/models",
     )
     with tests.integ.timeout.timeout_and_delete_endpoint_by_name(
-        endpoint_name=endpoint_name, sagemaker_session=sagemaker_session, hours=2
+        endpoint_name=endpoint_name,
+        sagemaker_session=sagemaker_session,
+        hours=2,
+        sleep_between_cleanup_attempts=20,
+        exponential_sleep=True,
     ):
         model = TensorFlowModel(
             model_data=model_data,
@@ -147,7 +154,7 @@ def default_monitoring_schedule_name(sagemaker_session, output_kms_key, volume_k
         output_s3_uri=output_s3_uri,
         statistics=statistics,
         constraints=constraints,
-        schedule_cron_expression=FIVE_MIN_CRON_EXPRESSION,
+        schedule_cron_expression=HOURLY_CRON_EXPRESSION,
         enable_cloudwatch_metrics=ENABLE_CLOUDWATCH_METRICS,
     )
 
@@ -207,7 +214,7 @@ def byoc_monitoring_schedule_name(sagemaker_session, output_kms_key, volume_kms_
         output=MonitoringOutput(source="/opt/ml/processing/output", destination=output_s3_uri),
         statistics=statistics,
         constraints=constraints,
-        schedule_cron_expression=FIVE_MIN_CRON_EXPRESSION,
+        schedule_cron_expression=HOURLY_CRON_EXPRESSION,
     )
 
     _wait_for_schedule_changes_to_apply(monitor=my_byoc_monitor)
@@ -271,7 +278,7 @@ def updated_output_kms_key(sagemaker_session):
     tests.integ.test_region() in tests.integ.NO_MODEL_MONITORING_REGIONS,
     reason="ModelMonitoring is not yet supported in this region.",
 )
-@pytest.mark.canary_quick
+@pytest.mark.release
 def test_default_monitor_suggest_baseline_and_create_monitoring_schedule_with_customizations(
     sagemaker_session, output_kms_key, volume_kms_key, predictor
 ):

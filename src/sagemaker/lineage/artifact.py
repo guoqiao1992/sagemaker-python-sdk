@@ -16,9 +16,20 @@ from __future__ import absolute_import
 import logging
 import math
 
+from datetime import datetime
+from typing import Iterator, Union, Any, Optional, List
+
 from sagemaker.apiutils import _base_types, _utils
 from sagemaker.lineage import _api_types
-from sagemaker.lineage._utils import get_module, _disassociate
+from sagemaker.lineage._api_types import ArtifactSource, ArtifactSummary
+from sagemaker.lineage.query import (
+    LineageQuery,
+    LineageFilter,
+    LineageSourceEnum,
+    LineageEntityEnum,
+    LineageQueryDirectionEnum,
+)
+from sagemaker.lineage._utils import get_module, _disassociate, get_resource_name_from_arn
 from sagemaker.lineage.association import Association
 
 LOGGER = logging.getLogger("sagemaker")
@@ -54,31 +65,38 @@ class Artifact(_base_types.Record):
         tags (List[dict[str, str]]): A list of tags to associate with the artifact.
         creation_time (datetime): When the artifact was created.
         created_by (obj): Contextual info on which account created the artifact.
+        last_modified_time (datetime): When the artifact was last modified.
+        last_modified_by (obj): Contextual info on which account created the artifact.
     """
 
-    artifact_arn = None
-    artifact_name = None
-    artifact_type = None
-    source = None
-    properties = None
-    tags = None
-    creation_time = None
-    created_by = None
-    last_modified_time = None
-    last_modified_by = None
+    artifact_arn: str = None
+    artifact_name: str = None
+    artifact_type: str = None
+    source: ArtifactSource = None
+    properties: dict = None
+    tags: list = None
+    creation_time: datetime = None
+    created_by: str = None
+    last_modified_time: datetime = None
+    last_modified_by: str = None
 
-    _boto_create_method = "create_artifact"
-    _boto_load_method = "describe_artifact"
-    _boto_update_method = "update_artifact"
-    _boto_delete_method = "delete_artifact"
+    _boto_create_method: str = "create_artifact"
+    _boto_load_method: str = "describe_artifact"
+    _boto_update_method: str = "update_artifact"
+    _boto_delete_method: str = "delete_artifact"
 
-    _boto_update_members = ["artifact_arn", "artifact_name", "properties", "properties_to_remove"]
+    _boto_update_members = [
+        "artifact_arn",
+        "artifact_name",
+        "properties",
+        "properties_to_remove",
+    ]
 
     _boto_delete_members = ["artifact_arn"]
 
     _custom_boto_types = {"source": (_api_types.ArtifactSource, False)}
 
-    def save(self):
+    def save(self) -> "Artifact":
         """Save the state of this Artifact to SageMaker.
 
         Note that this method must be run from a SageMaker context such as Studio or a training job
@@ -89,7 +107,7 @@ class Artifact(_base_types.Record):
         """
         return self._invoke_api(self._boto_update_method, self._boto_update_members)
 
-    def delete(self, disassociate=False):
+    def delete(self, disassociate: bool = False):
         """Delete the artifact object.
 
         Args:
@@ -98,12 +116,13 @@ class Artifact(_base_types.Record):
         if disassociate:
             _disassociate(source_arn=self.artifact_arn, sagemaker_session=self.sagemaker_session)
             _disassociate(
-                destination_arn=self.artifact_arn, sagemaker_session=self.sagemaker_session
+                destination_arn=self.artifact_arn,
+                sagemaker_session=self.sagemaker_session,
             )
         self._invoke_api(self._boto_delete_method, self._boto_delete_members)
 
     @classmethod
-    def load(cls, artifact_arn, sagemaker_session=None):
+    def load(cls, artifact_arn: str, sagemaker_session=None) -> "Artifact":
         """Load an existing artifact and return an ``Artifact`` object representing it.
 
         Args:
@@ -123,11 +142,11 @@ class Artifact(_base_types.Record):
         )
         return artifact
 
-    def downstream_trials(self, sagemaker_session=None):
-        """Retrieve all trial runs which that use this artifact.
+    def downstream_trials(self, sagemaker_session=None) -> list:
+        """Use the lineage API to retrieve all downstream trials that use this artifact.
 
         Args:
-            sagemaker_session (obj): Sagemaker Sesssion to use. If not provided a default session
+            sagemaker_session (obj): Sagemaker Session to use. If not provided a default session
                 will be created.
 
         Returns:
@@ -135,11 +154,59 @@ class Artifact(_base_types.Record):
         """
         # don't specify destination type because for Trial Components it could be one of
         # SageMaker[TrainingJob|ProcessingJob|TransformJob|ExperimentTrialComponent]
-        outgoing_associations = Association.list(
+        outgoing_associations: Iterator = Association.list(
             source_arn=self.artifact_arn, sagemaker_session=sagemaker_session
         )
-        trial_component_arns = list(map(lambda x: x.destination_arn, outgoing_associations))
+        trial_component_arns: list = list(map(lambda x: x.destination_arn, outgoing_associations))
 
+        return self._get_trial_from_trial_component(trial_component_arns)
+
+    def downstream_trials_v2(self) -> list:
+        """Use a lineage query to retrieve all downstream trials that use this artifact.
+
+        Returns:
+            [Trial]: A list of SageMaker `Trial` objects.
+        """
+        return self._trials(direction=LineageQueryDirectionEnum.DESCENDANTS)
+
+    def upstream_trials(self) -> List:
+        """Use the lineage query to retrieve all upstream trials that use this artifact.
+
+        Returns:
+            [Trial]: A list of SageMaker `Trial` objects.
+        """
+        return self._trials(direction=LineageQueryDirectionEnum.ASCENDANTS)
+
+    def _trials(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.BOTH
+    ) -> List:
+        """Use the lineage query to retrieve all trials that use this artifact.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            [Trial]: A list of SageMaker `Trial` objects.
+        """
+        query_filter = LineageFilter(entities=[LineageEntityEnum.TRIAL_COMPONENT])
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.artifact_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+        trial_component_arns: list = list(map(lambda x: x.arn, query_result.vertices))
+        return self._get_trial_from_trial_component(trial_component_arns)
+
+    def _get_trial_from_trial_component(self, trial_component_arns: list) -> List:
+        """Retrieve all upstream trial runs which that use the trial component arns.
+
+        Args:
+            trial_component_arns (list): list of trial component arns
+
+        Returns:
+            [Trial]: A list of SageMaker `Trial` objects.
+        """
         if not trial_component_arns:
             # no outgoing associations for this artifact
             return []
@@ -147,25 +214,25 @@ class Artifact(_base_types.Record):
         get_module("smexperiments")
         from smexperiments import trial_component, search_expression
 
-        max_search_by_arn = 60
+        max_search_by_arn: int = 60
         num_search_batches = math.ceil(len(trial_component_arns) % max_search_by_arn)
-        trial_components = []
+        trial_components: list = []
 
-        sagemaker_session = sagemaker_session or _utils.default_session()
+        sagemaker_session = self.sagemaker_session or _utils.default_session()
         sagemaker_client = sagemaker_session.sagemaker_client
 
         for i in range(num_search_batches):
-            start = i * max_search_by_arn
-            end = start + max_search_by_arn
-            arn_batch = trial_component_arns[start:end]
-            se = self._get_search_expression(arn_batch, search_expression)
-            search_result = trial_component.TrialComponent.search(
+            start: int = i * max_search_by_arn
+            end: int = start + max_search_by_arn
+            arn_batch: list = trial_component_arns[start:end]
+            se: Any = self._get_search_expression(arn_batch, search_expression)
+            search_result: Any = trial_component.TrialComponent.search(
                 search_expression=se, sagemaker_boto_client=sagemaker_client
             )
 
-            trial_components = trial_components + list(search_result)
+            trial_components: list = trial_components + list(search_result)
 
-        trials = set()
+        trials: set = set()
 
         for tc in list(trial_components):
             for parent in tc.parents:
@@ -173,7 +240,7 @@ class Artifact(_base_types.Record):
 
         return list(trials)
 
-    def _get_search_expression(self, arns, search_expression):
+    def _get_search_expression(self, arns: list, search_expression: object) -> object:
         """Convert a set of arns to a search expression.
 
         Args:
@@ -183,14 +250,14 @@ class Artifact(_base_types.Record):
         Returns:
             search_expression (obj): Arns converted to a Trial Component search expression.
         """
-        max_arn_per_filter = 3
-        num_filters = math.ceil(len(arns) / max_arn_per_filter)
-        filters = []
+        max_arn_per_filter: int = 3
+        num_filters: Union[float, int] = math.ceil(len(arns) / max_arn_per_filter)
+        filters: list = []
 
         for i in range(num_filters):
-            start = i * max_arn_per_filter
-            end = i + max_arn_per_filter
-            batch_arns = arns[start:end]
+            start: int = i * max_arn_per_filter
+            end: int = i + max_arn_per_filter
+            batch_arns: list = arns[start:end]
             search_filter = search_expression.Filter(
                 name="TrialComponentArn",
                 operator=search_expression.Operator.EQUALS,
@@ -230,14 +297,14 @@ class Artifact(_base_types.Record):
     @classmethod
     def create(
         cls,
-        artifact_name=None,
-        source_uri=None,
-        source_types=None,
-        artifact_type=None,
-        properties=None,
-        tags=None,
+        artifact_name: Optional[str] = None,
+        source_uri: Optional[str] = None,
+        source_types: Optional[list] = None,
+        artifact_type: Optional[str] = None,
+        properties: Optional[dict] = None,
+        tags: Optional[dict] = None,
         sagemaker_session=None,
-    ):
+    ) -> "Artifact":
         """Create an artifact and return an ``Artifact`` object representing it.
 
         Args:
@@ -258,7 +325,7 @@ class Artifact(_base_types.Record):
         return super(Artifact, cls)._construct(
             cls._boto_create_method,
             artifact_name=artifact_name,
-            source=_api_types.ContextSource(source_uri=source_uri, source_types=source_types),
+            source=_api_types.ArtifactSource(source_uri=source_uri, source_types=source_types),
             artifact_type=artifact_type,
             properties=properties,
             tags=tags,
@@ -268,16 +335,16 @@ class Artifact(_base_types.Record):
     @classmethod
     def list(
         cls,
-        source_uri=None,
-        artifact_type=None,
-        created_before=None,
-        created_after=None,
-        sort_by=None,
-        sort_order=None,
-        max_results=None,
-        next_token=None,
+        source_uri: Optional[str] = None,
+        artifact_type: Optional[str] = None,
+        created_before: Optional[datetime] = None,
+        created_after: Optional[datetime] = None,
+        sort_by: Optional[str] = None,
+        sort_order: Optional[str] = None,
+        max_results: Optional[int] = None,
+        next_token: Optional[str] = None,
         sagemaker_session=None,
-    ):
+    ) -> Iterator[ArtifactSummary]:
         """Return a list of artifact summaries.
 
         Args:
@@ -316,27 +383,40 @@ class Artifact(_base_types.Record):
             sagemaker_session=sagemaker_session,
         )
 
+    def s3_uri_artifacts(self, s3_uri: str) -> dict:
+        """Retrieve a list of artifacts that use provided s3 uri.
+
+        Args:
+            s3_uri (str): A S3 URI.
+
+        Returns:
+            A list of ``Artifacts``
+        """
+        return self.sagemaker_session.sagemaker_client.list_artifacts(SourceUri=s3_uri)
+
 
 class ModelArtifact(Artifact):
     """A SageMaker lineage artifact representing a model.
 
     Common model specific lineage traversals to discover how the model is connected
-    to otherentities.
+    to other entities.
     """
 
-    def endpoints(self):
-        """Given a model artifact, get all associated endpoint context.
+    from sagemaker.lineage.context import Context
+
+    def endpoints(self) -> list:
+        """Get association summaries for endpoints deployed with this model.
 
         Returns:
-            [AssociationSummary]: A list of associations repesenting the endpoints using the model.
+            [AssociationSummary]: A list of associations representing the endpoints using the model.
         """
-        endpoint_development_actions = Association.list(
+        endpoint_development_actions: Iterator = Association.list(
             source_arn=self.artifact_arn,
             destination_type="Action",
             sagemaker_session=self.sagemaker_session,
         )
 
-        endpoint_context_list = [
+        endpoint_context_list: list = [
             endpoint_context_associations
             for endpoint_development_action in endpoint_development_actions
             for endpoint_context_associations in Association.list(
@@ -347,6 +427,104 @@ class ModelArtifact(Artifact):
         ]
         return endpoint_context_list
 
+    def endpoint_contexts(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.DESCENDANTS
+    ) -> List[Context]:
+        """Get contexts representing endpoints from the models's lineage.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of Contexts: Contexts representing an endpoint.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.CONTEXT], sources=[LineageSourceEnum.ENDPOINT]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.artifact_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+
+        endpoint_contexts = []
+        for vertex in query_result.vertices:
+            endpoint_contexts.append(vertex.to_lineage_object())
+        return endpoint_contexts
+
+    def dataset_artifacts(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.ASCENDANTS
+    ) -> List[Artifact]:
+        """Get artifacts representing datasets from the model's lineage.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of Artifacts: Artifacts representing a dataset.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.ARTIFACT], sources=[LineageSourceEnum.DATASET]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.artifact_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+
+        dataset_artifacts = []
+        for vertex in query_result.vertices:
+            dataset_artifacts.append(vertex.to_lineage_object())
+        return dataset_artifacts
+
+    def training_job_arns(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.ASCENDANTS
+    ) -> List[str]:
+        """Get ARNs for all training jobs that appear in the model's lineage.
+
+        Returns:
+            list of str: Training job ARNs.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.TRIAL_COMPONENT], sources=[LineageSourceEnum.TRAINING_JOB]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.artifact_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+
+        training_job_arns = []
+        for vertex in query_result.vertices:
+            trial_component_name = get_resource_name_from_arn(vertex.arn)
+            trial_component = self.sagemaker_session.sagemaker_client.describe_trial_component(
+                TrialComponentName=trial_component_name
+            )
+            training_job_arns.append(trial_component["Source"]["SourceArn"])
+        return training_job_arns
+
+    def pipeline_execution_arn(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.ASCENDANTS
+    ) -> str:
+        """Get the ARN for the pipeline execution associated with this model (if any).
+
+        Returns:
+            str: A pipeline execution ARN.
+        """
+        training_job_arns = self.training_job_arns(direction=direction)
+        for training_job_arn in training_job_arns:
+            tags = self.sagemaker_session.sagemaker_client.list_tags(ResourceArn=training_job_arn)[
+                "Tags"
+            ]
+            for tag in tags:
+                if tag["Key"] == "sagemaker:pipeline-execution-arn":
+                    return tag["Value"]
+
+        return None
+
 
 class DatasetArtifact(Artifact):
     """A SageMaker Lineage artifact representing a dataset.
@@ -355,16 +533,18 @@ class DatasetArtifact(Artifact):
     connect to related entities.
     """
 
-    def trained_models(self):
+    from sagemaker.lineage.context import Context
+
+    def trained_models(self) -> List[Association]:
         """Given a dataset artifact, get associated trained models.
 
         Returns:
             list(Association): List of Contexts representing model artifacts.
         """
-        trial_components = Association.list(
+        trial_components: Iterator = Association.list(
             source_arn=self.artifact_arn, sagemaker_session=self.sagemaker_session
         )
-        result = []
+        result: list = []
         for trial_component in trial_components:
             if "experiment-trial-component" in trial_component.destination_arn:
                 models = Association.list(
@@ -375,3 +555,95 @@ class DatasetArtifact(Artifact):
                 result.extend(models)
 
         return result
+
+    def endpoint_contexts(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.DESCENDANTS
+    ) -> List[Context]:
+        """Get contexts representing endpoints from the dataset's lineage.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of Contexts: Contexts representing an endpoint.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.CONTEXT], sources=[LineageSourceEnum.ENDPOINT]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.artifact_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+
+        endpoint_contexts = []
+        for vertex in query_result.vertices:
+            endpoint_contexts.append(vertex.to_lineage_object())
+        return endpoint_contexts
+
+    def upstream_datasets(self) -> List[Artifact]:
+        """Use the lineage query to retrieve upstream artifacts that use this dataset artifact.
+
+        Returns:
+            list of Artifacts: Artifacts representing an dataset.
+        """
+        return self._datasets(direction=LineageQueryDirectionEnum.ASCENDANTS)
+
+    def downstream_datasets(self) -> List[Artifact]:
+        """Use the lineage query to retrieve downstream artifacts that use this dataset.
+
+        Returns:
+            list of Artifacts: Artifacts representing an dataset.
+        """
+        return self._datasets(direction=LineageQueryDirectionEnum.DESCENDANTS)
+
+    def _datasets(
+        self, direction: LineageQueryDirectionEnum = LineageQueryDirectionEnum.BOTH
+    ) -> List[Artifact]:
+        """Use the lineage query to retrieve all artifacts that use this dataset.
+
+        Args:
+            direction (LineageQueryDirectionEnum, optional): The query direction.
+
+        Returns:
+            list of Artifacts: Artifacts representing an dataset.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.ARTIFACT], sources=[LineageSourceEnum.DATASET]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.artifact_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+        return [vertex.to_lineage_object() for vertex in query_result.vertices]
+
+
+class ImageArtifact(Artifact):
+    """A SageMaker lineage artifact representing an image.
+
+    Common model specific lineage traversals to discover how the image is connected
+    to other entities.
+    """
+
+    def datasets(self, direction: LineageQueryDirectionEnum) -> List[Artifact]:
+        """Use the lineage query to retrieve datasets that use this image artifact.
+
+        Args:
+            direction (LineageQueryDirectionEnum): The query direction.
+
+        Returns:
+            list of Artifacts: Artifacts representing a dataset.
+        """
+        query_filter = LineageFilter(
+            entities=[LineageEntityEnum.ARTIFACT], sources=[LineageSourceEnum.DATASET]
+        )
+        query_result = LineageQuery(self.sagemaker_session).query(
+            start_arns=[self.artifact_arn],
+            query_filter=query_filter,
+            direction=direction,
+            include_edges=False,
+        )
+        return [vertex.to_lineage_object() for vertex in query_result.vertices]

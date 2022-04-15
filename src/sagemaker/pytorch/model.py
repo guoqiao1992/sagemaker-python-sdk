@@ -1,4 +1,4 @@
-# Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -70,9 +70,7 @@ class PyTorchPredictor(Predictor):
 
 
 class PyTorchModel(FrameworkModel):
-    """An PyTorch SageMaker ``Model`` that can be deployed to a SageMaker
-    ``Endpoint``.
-    """
+    """An PyTorch SageMaker ``Model`` that can be deployed to a SageMaker ``Endpoint``."""
 
     _framework_name = "pytorch"
     _LOWEST_MMS_VERSION = "1.2"
@@ -109,10 +107,11 @@ class PyTorchModel(FrameworkModel):
             py_version (str): Python version you want to use for executing your
                 model training code. Defaults to ``None``. Required unless
                 ``image_uri`` is provided.
-            image_uri (str): A Docker image URI (default: None). If not specified, a
-                default image for PyTorch will be used. If ``framework_version``
-                or ``py_version`` are ``None``, then ``image_uri`` is required. If
-                also ``None``, then a ``ValueError`` will be raised.
+            image_uri (str): A Docker image URI (default: None). If not specified,
+                a default image for PyTorch will be used.
+                If ``framework_version`` or ``py_version`` are
+                ``None``, then ``image_uri`` is required. If ``image_uri`` is also ``None``, then a
+                ``ValueError`` will be raised.
             predictor_cls (callable[str, sagemaker.session.Session]): A function
                 to call to create a predictor with an endpoint name and
                 SageMaker ``Session``. If specified, ``deploy()`` returns the
@@ -158,6 +157,8 @@ class PyTorchModel(FrameworkModel):
         marketplace_cert=False,
         approval_status=None,
         description=None,
+        drift_check_baselines=None,
+        customer_metadata_properties=None,
     ):
         """Creates a model package for creating SageMaker models or listing on Marketplace.
 
@@ -182,9 +183,12 @@ class PyTorchModel(FrameworkModel):
             approval_status (str): Model Approval Status, values can be "Approved", "Rejected",
                 or "PendingManualApproval" (default: "PendingManualApproval").
             description (str): Model Package description (default: None).
+            drift_check_baselines (DriftCheckBaselines): DriftCheckBaselines object (default: None).
+            customer_metadata_properties (dict[str, str]): A dictionary of key-value paired
+                metadata properties (default: None).
 
         Returns:
-            str: A string of SageMaker Model Package ARN.
+            A `sagemaker.model.ModelPackage` instance.
         """
         instance_type = inference_instances[0]
         self._init_sagemaker_session_if_does_not_exist(instance_type)
@@ -209,11 +213,14 @@ class PyTorchModel(FrameworkModel):
             marketplace_cert,
             approval_status,
             description,
+            drift_check_baselines=drift_check_baselines,
+            customer_metadata_properties=customer_metadata_properties,
         )
 
-    def prepare_container_def(self, instance_type=None, accelerator_type=None):
-        """Return a container definition with framework configuration set in
-        model environment variables.
+    def prepare_container_def(
+        self, instance_type=None, accelerator_type=None, serverless_inference_config=None
+    ):
+        """A container definition with framework configuration set in model environment variables.
 
         Args:
             instance_type (str): The EC2 instance type to deploy this Model to.
@@ -221,6 +228,9 @@ class PyTorchModel(FrameworkModel):
             accelerator_type (str): The Elastic Inference accelerator type to
                 deploy to the instance for loading and making inferences to the
                 model.
+            serverless_inference_config (sagemaker.serverless.ServerlessInferenceConfig):
+                Specifies configuration related to serverless endpoint. Instance type is
+                not provided in serverless inference. So this is used to find image URIs.
 
         Returns:
             dict[str, str]: A container definition object usable with the
@@ -228,20 +238,23 @@ class PyTorchModel(FrameworkModel):
         """
         deploy_image = self.image_uri
         if not deploy_image:
-            if instance_type is None:
+            if instance_type is None and serverless_inference_config is None:
                 raise ValueError(
                     "Must supply either an instance type (for choosing CPU vs GPU) or an image URI."
                 )
 
             region_name = self.sagemaker_session.boto_session.region_name
             deploy_image = self.serving_image_uri(
-                region_name, instance_type, accelerator_type=accelerator_type
+                region_name,
+                instance_type,
+                accelerator_type=accelerator_type,
+                serverless_inference_config=serverless_inference_config,
             )
 
         deploy_key_prefix = model_code_key_prefix(self.key_prefix, self.name, deploy_image)
         self._upload_code(deploy_key_prefix, repack=self._is_mms_version())
         deploy_env = dict(self.env)
-        deploy_env.update(self._framework_env_vars())
+        deploy_env.update(self._script_mode_env_vars())
 
         if self.model_server_workers:
             deploy_env[MODEL_SERVER_WORKERS_PARAM_NAME.upper()] = str(self.model_server_workers)
@@ -249,7 +262,9 @@ class PyTorchModel(FrameworkModel):
             deploy_image, self.repacked_model_data or self.model_data, deploy_env
         )
 
-    def serving_image_uri(self, region_name, instance_type, accelerator_type=None):
+    def serving_image_uri(
+        self, region_name, instance_type, accelerator_type=None, serverless_inference_config=None
+    ):
         """Create a URI for the serving image.
 
         Args:
@@ -259,6 +274,9 @@ class PyTorchModel(FrameworkModel):
             accelerator_type (str): The Elastic Inference accelerator type to
                 deploy to the instance for loading and making inferences to the
                 model.
+            serverless_inference_config (sagemaker.serverless.ServerlessInferenceConfig):
+                Specifies configuration related to serverless endpoint. Instance type is
+                not provided in serverless inference. So this is used to determine device type.
 
         Returns:
             str: The appropriate image URI based on the given parameters.
@@ -272,10 +290,13 @@ class PyTorchModel(FrameworkModel):
             instance_type=instance_type,
             accelerator_type=accelerator_type,
             image_scope="inference",
+            serverless_inference_config=serverless_inference_config,
         )
 
     def _is_mms_version(self):
-        """Whether the framework version corresponds to an inference image using
+        """Determines if the framework corresponds to an and using MMS.
+
+        Whether the framework version corresponds to an inference image using
         the Multi-Model Server (https://github.com/awslabs/multi-model-server).
 
         Returns:

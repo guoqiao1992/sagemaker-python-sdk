@@ -5,8 +5,7 @@ ConditionStep
 -------------
 
 .. autoclass:: sagemaker.workflow.condition_step.ConditionStep
-
-.. autoclass:: sagemaker.workflow.condition_step.JsonGet
+.. deprecated:: sagemaker.workflow.condition_step.JsonGet
 
 Conditions
 ----------
@@ -33,7 +32,10 @@ Conditions
 
 .. autoclass:: sagemaker.workflow.conditions.ConditionOr
 
-.. autofunction:: sagemaker.workflow.conditions.primitive_or_expr
+CheckJobConfig
+--------------
+
+.. autoclass:: sagemaker.workflow.check_job_config.CheckJobConfig
 
 Entities
 --------
@@ -44,12 +46,19 @@ Entities
 
 .. autoclass:: sagemaker.workflow.entities.Expression
 
-Execution_variables
+Execution Variables
 -------------------
 
 .. autoclass:: sagemaker.workflow.execution_variables.ExecutionVariable
 
 .. autoclass:: sagemaker.workflow.execution_variables.ExecutionVariables
+
+Functions
+---------
+
+.. autoclass:: sagemaker.workflow.functions.Join
+
+.. autoclass:: sagemaker.workflow.functions.JsonGet
 
 Parameters
 ----------
@@ -68,12 +77,23 @@ Pipeline
 --------
 
 .. autoclass:: sagemaker.workflow.pipeline.Pipeline
+    :members:
 
-.. autofunction:: sagemaker.workflow.pipeline.format_start_parameters
+.. autoclass:: sagemaker.workflow.pipeline._PipelineExecution
+    :members:
 
-.. autofunction:: sagemaker.workflow.pipeline.interpolate
+Parallelism Configuration
+-------------------------
 
-.. autofunction:: sagemaker.workflow.pipeline.update_args
+.. autoclass:: sagemaker.workflow.parallelism_config.ParallelismConfiguration
+    :members:
+
+Pipeline Experiment Config
+--------------------------
+
+.. autoclass:: sagemaker.workflow.pipeline_experiment_config.PipelineExperimentConfig
+
+.. autoclass:: sagemaker.workflow.pipeline_experiment_config.PipelineExperimentConfigProperty
 
 Properties
 ----------
@@ -104,15 +124,28 @@ Steps
 
 .. autoclass:: sagemaker.workflow.steps.TrainingStep
 
-.. autoclass:: sagemaker.workflow.steps.CreateModelStep
+.. autoclass:: sagemaker.workflow.steps.TuningStep
+
+.. autofunction:: sagemaker.workflow.steps.TuningStep.get_top_model_s3_uri
 
 .. autoclass:: sagemaker.workflow.steps.TransformStep
 
 .. autoclass:: sagemaker.workflow.steps.ProcessingStep
 
-.. autoclass:: sagemaker.workflow.steps.FailStep
+.. autoclass:: sagemaker.workflow.steps.CreateModelStep
 
-Utilities
----------
+.. autoclass:: sagemaker.workflow.callback_step.CallbackStep
 
-.. autofunction:: sagemaker.workflow.utilities.list_to_request
+.. autoclass:: sagemaker.workflow.steps.CacheConfig
+
+.. autoclass:: sagemaker.workflow.lambda_step.LambdaStep
+
+.. autoclass:: sagemaker.workflow.quality_check_step.QualityCheckConfig
+
+.. autoclass:: sagemaker.workflow.quality_check_step.QualityCheckStep
+
+.. autoclass:: sagemaker.workflow.clarify_check_step.ClarifyCheckConfig
+
+.. autoclass:: sagemaker.workflow.clarify_check_step.ClarifyCheckStep
+
+.. autoclass:: sagemaker.workflow.fail_step.FailStep
